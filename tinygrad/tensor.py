@@ -41,6 +41,10 @@ class Tensor:
                 if self.grad is None: self.grad = 0
                 self.grad += out.grad
 
+            if other.requires_grad:
+                if self.grad is None: other.grad = 0
+                other.grad += out.grad
+
         out._backward = _backward
         return out
 
