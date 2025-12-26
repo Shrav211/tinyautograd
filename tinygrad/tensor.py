@@ -29,6 +29,8 @@ class Tensor:
             v._backward()
 
     def __add__(self, other):
+        
+        other = other if isinstance(other, Tensor) else Tensor(other)
 
         out = Tensor(self.data + other.data, requires_grad=self.requires_grad or other.requires_grad)
         out._prev = {self, other}
@@ -50,6 +52,8 @@ class Tensor:
     
     def __mul__(self, other):
         
+        other = other if isinstance(other, Tensor) else Tensor(other)
+
         out = Tensor(self.data * other.data, requires_grad=self.requires_grad or other.requires_grad)
         out._prev = {self, other}
 
@@ -85,6 +89,8 @@ class Tensor:
         return out
 
     def __sub__(self, other):
+        
+        other = other if isinstance(other, Tensor) else Tensor(other)
 
         out = Tensor(self.data - other.data, requires_grad=self.requires_grad or other.requires_grad)
         out._prev = {self, other}
@@ -107,7 +113,7 @@ class Tensor:
     def __pow__(self, p):
 
         out = Tensor(self.data ** p, requires_grad=self.requires_grad)
-        out._prev = {self.other}
+        out._prev = {self}
 
         def _backward():
             if not out.requires_grad:
@@ -119,10 +125,26 @@ class Tensor:
 
         out._backward = _backward
         return out
+    
+    def sum(self):
 
-x = Tensor(2, True)
-y = Tensor(3, True)
-z = x - y
-z.backward()
-print(x.grad, y.grad)
+        out = Tensor(self.data, requires_grad=self.requires_grad)
+        out._prev = {self}
+
+        def _backward():
+            if not out.requires_grad:
+                return
+            
+            if self.requires_grad:
+                if self.grad is None: self.grad = 0
+                self.grad += out.grad
+
+        out._backward = _backward
+        return out
+
+    def zero_grad(self):
+        self.grad = None
+
+
+
 
