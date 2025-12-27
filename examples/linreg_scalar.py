@@ -1,40 +1,28 @@
-from tinygrad.tensor import Tensor  # adjust import path
+from tinygrad.tensor import Tensor
+from tinygrad.nn import Linear
+from tinygrad.optim import SGD
 
-# synthetic data
 xs = [1.0, 2.0, 3.0, 4.0]
-ys = [5.0, 8.0, 11.0, 14.0]  # y = 3x + 2
+ys = [5.0, 8.0, 11.0, 14.0]
 
-# parameters
-w = Tensor(0.0, requires_grad=True)
-b = Tensor(0.0, requires_grad=True)
+model = Linear(w_init=0.0, b_init=0.0)
+opt = SGD(model.parameters(), lr=0.01)
 
-lr = 0.01
 steps = 2000
-
 for step in range(steps):
-    # reset grads
-    w.zero_grad()
-    b.zero_grad()
+    opt.zero_grad()
 
-    # compute loss (mean squared error)
-    loss = Tensor(0.0, requires_grad=False)
+    loss = Tensor(0.0)
     for x, y in zip(xs, ys):
-        x = Tensor(x, requires_grad=False)
-        y = Tensor(y, requires_grad=False)
+        x = Tensor(x)
+        y = Tensor(y)
 
-        pred = w * x + b
-        err = pred - y
-        loss = loss + (err ** 2)
+        pred = model(x)
+        loss = loss + (pred - y) ** 2
 
-    # optional: mean
     loss = loss * (1.0 / len(xs))
-
-    # backprop
     loss.backward()
-
-    # SGD update
-    w.data -= lr * w.grad
-    b.data -= lr * b.grad
+    opt.step()
 
     if step % 200 == 0:
-        print(step, loss.data, w.data, b.data)
+        print(step, loss.data, model.w.data, model.b.data)
