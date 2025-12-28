@@ -49,7 +49,7 @@ class Tensor:
 
         out._backward = _backward
         return out
-    
+
     def __mul__(self, other):
         
         other = other if isinstance(other, Tensor) else Tensor(other)
@@ -144,6 +144,21 @@ class Tensor:
 
     def zero_grad(self):
         self.grad = None
+
+    __radd__ = __add__
+    __rmul__ = __mul__
+
+    def __rsub__(self, other):
+        
+        other = other if isinstance(other, Tensor) else Tensor(other)
+
+        return other - self
+    
+x = Tensor(3, True)
+z = 2 * x + 1
+z.backward()
+print(x.grad)  # expect 2
+
 
 
 
