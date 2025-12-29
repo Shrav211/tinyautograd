@@ -169,10 +169,6 @@ class Tensor:
 
         return other - self
     
-x = Tensor(3, True)
-z = 2 * x + 1
-z.backward()
-print(x.grad)  # expect 2
 
 
 
