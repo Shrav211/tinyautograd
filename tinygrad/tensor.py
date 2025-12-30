@@ -180,7 +180,7 @@ class Tensor:
                 self.__init_grad()
                 mask = (self.data > 0).astype(self.data.dtype)
                 grad_self = out.grad * mask
-                self.data += _unbroadcast(grad_self, self.data.shape)
+                self.grad += _unbroadcast(grad_self, self.data.shape)
 
         out._backward = _backward
         return out
