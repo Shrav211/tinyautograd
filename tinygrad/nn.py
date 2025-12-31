@@ -1,4 +1,5 @@
 from .tensor import Tensor
+import numpy as np
 
 class Module:
     def parameters(self):
@@ -25,10 +26,22 @@ class Module:
     
 class Linear(Module):
     #Scalar Linear Layer
-    def __init__(self, w_init=0.0, b_init=0.0):
-        self.w = Tensor(w_init, requires_grad=True)
-        self.b = Tensor(b_init, requires_grad=True)
+    def __init__(self, in_dim, out_dim):
+        W = np.random.randn(in_dim, out_dim) * 0.1
+        b = np.zeros((out_dim,))
+        
+        self.W = Tensor(W, requires_grad=True)
+        self.b = Tensor(b, requires_grad=True)
 
     def __call__(self, x: Tensor) -> Tensor:
-        return self.w * x + self.b
+        return (x @ self.W) + self.b
     
+class MLP(Module):
+    def __init__(self, in_dim, hidden_dim, out_dim):
+        self.l1 = Linear(in_dim, hidden_dim)
+        self.l2 = Linear(hidden_dim, out_dim)
+
+    def __call__(self, x: Tensor) -> Tensor:
+        h = self.l1(x).relu()
+        y = self.l2(h)
+        return y

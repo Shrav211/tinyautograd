@@ -170,6 +170,7 @@ class Tensor:
         return other - self
     
     def relu(self):
+        
         out = Tensor(np.maximum(0, self.data), requires_grad=self.requires_grad)
         out._prev = {self}
 
@@ -188,7 +189,31 @@ class Tensor:
     def __repr__(self):
         return f"Tensor(data={self.data}, grad={self.grad}, requires_grad={self.requires_grad})"
 
+    def __matmul__(self, other):
+        
+        other = other if isinstance(other, Tensor) else Tensor(other)
+
+        out = Tensor(self.data @ other.data, requires_grad=self.requires_grad or other.requires_grad)
+        out._prev = {self, other}
+
+        def _backward():
+            if out.grad is None:
+                return
+            
+            if self.requires_grad:
+                self.__init_grad()
+                grad_self = out.grad @ other.data.T
+                self.grad += _unbroadcast(grad_self, self.data.shape)
+
+            if other.requires_grad:
+                other.__init_grad()
+                grad_other = self.data.T @ out.grad
+                other.grad += _unbroadcast(grad_other, other.data.shape)
+
+        out._backward = _backward
+        return out
     
+
 
 
 
