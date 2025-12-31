@@ -213,7 +213,64 @@ class Tensor:
         out._backward = _backward
         return out
     
+    def sigmoid(self):
+        out_data = 1 / (1 + np.exp(-self.data))
+        out = Tensor(out_data, requires_grad=self.requires_grad)
+        out._prev = {self}
 
+        def _backward():
+            if out.grad is None:
+                return
+            if self.requires_grad:
+                self.__init_grad()
+                grad_self = out.grad * out.data * (1 - out.data)
+                self.grad += _unbroadcast(grad_self, self.data.shape)
+
+        out._backward = _backward
+        return out
+    
+    def log(self):
+        out = Tensor(np.log(self.data), requires_grad=self.requires_grad)
+        out._prev = {self}
+
+        def _backward():
+            if out.grad is None:
+                return
+            if self.requires_grad:
+                self.__init_grad()
+                self.grad += _unbroadcast(out.grad / self.data, self.data.shape)
+        
+        out._backward = _backward
+        return out
+    
+    def exp(self):
+        out = Tensor(np.exp(self.data), requires_grad=self.requires_grad)
+        out._prev = {self}
+
+        def _backward():
+            if out.grad is None:
+                return
+            if self.requires_grad:
+                self.__init_grad()
+                self.grad += _unbroadcast(out.grad * out.data, self.data.shape)
+
+        out._backward = _backward
+        return out
+    
+    def abs(self):
+        out = Tensor(np.abs(self.data), requires_grad=self.requires_grad)
+        out._prev = {self}
+
+        def _backward():
+            if out.grad is None:
+                return
+            if self.requires_grad:
+                self.__init_grad()
+                sign = np.sign(self.data)
+                self.grad += _unbroadcast(out.grad * sign, self.data.shape)
+
+        out._backward = _backward
+        return out
 
 
 
