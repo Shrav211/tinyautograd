@@ -46,7 +46,4 @@ for step in range(steps):
 
 pred = model(Tensor(X)).sigmoid()
 print("pred:", pred.data)
-print("W1", model.l1.W.data)
-print("b1", model.l1.b.data)
-print("W2", model.l2.W.data)
-print("b2", model.l2.b.data)
+
