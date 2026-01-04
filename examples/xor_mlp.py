@@ -3,22 +3,15 @@ from tinygrad.tensor import Tensor
 from tinygrad.nn import MLP
 from tinygrad.optim import SGD
 
-#XOR Dataset
-X = np.array([
-    [0., 0.],
-    [0., 1.],
-    [1., 0.],
-    [1., 1.]
-])
-Y = np.array([
-    [0.],
-    [1.],
-    [1.],
-    [0.]
-])
+def iterate_minibatches(X, Y, batch_size=4, shuffle=True):
+    N = X.shape[0]
+    idx = np.arange(N)
+    if shuffle:
+        np.random.shuffle(idx)
 
-model = MLP(in_dim=2, hidden_dim=8, out_dim=1)
-opt = SGD(model.parameters(), lr=0.1)
+    for start in range(0, N, batch_size):
+        batch_idx = idx[start:start+batch_size]
+        yield X[batch_idx], Y[batch_idx]
 
 def mse(pred, y):
     err = pred - y
@@ -26,24 +19,68 @@ def mse(pred, y):
 
 def bce_with_logits(logits: Tensor, target: Tensor):
     z = logits
-    return (z.relu() - z * target + (1 + (-z.abs()).exp()).log()).sum() * (1.0 / target.data.size)
+    loss = (z.relu() - z * target + (1 + (-z.abs()).exp()).log())
+    return loss.sum() * (1.0 / target.data.size)
 
-steps = 5000
-for step in range(steps):
+X = np.array([[0.,0.],[0.,1.],[1.,0.],[1.,1.]])
+Y = np.array([[0.],[1.],[1.],[0.]])
+
+model = MLP(2, 8, 1)
+
+opt = SGD(model.parameters(), lr=0.1)
+
+accum_steps = 4
+micro_batch_size = 1
+
+# for epoch in range(2000):
+#     for xb, yb in iterate_minibatches(X, Y, batch_size=2, shuffle=True):
+#         x = Tensor(xb, requires_grad=False)
+#         y = Tensor(yb, requires_grad=False)
+
+#         # 1) clear grads
+#         opt.zero_grad()
+
+#         # 2) forward + loss
+#         logits = model(x)
+#         loss = bce_with_logits(logits, y)
+
+#         # 3) backward
+#         loss.backward()
+
+#         # 4) update
+#         opt.step()
+
+#     if epoch % 200 == 0:
+#         print(epoch, float(loss.data))
+
+for epoch in range(2000):
     opt.zero_grad()
+    step_in_accum = 0
+    loss_sum = 0.0  # track true loss over epoch
 
-    x = Tensor(X)
-    y = Tensor(Y)
+    for xb, yb in iterate_minibatches(X, Y, batch_size=micro_batch_size, shuffle=True):
+        x = Tensor(xb, requires_grad=False)
+        y = Tensor(yb, requires_grad=False)
 
-    logits = model(x)          # raw scores
-    loss = bce_with_logits(logits, y)
+        logits = model(x)
+        loss_raw = bce_with_logits(logits, y)   # true loss for this microbatch
+        loss_sum += float(loss_raw.data)
 
-    loss.backward()
-    opt.step()
+        loss_scaled = loss_raw * (1.0 / accum_steps)
+        loss_scaled.backward()
 
-    if step % 500 == 0:
-        print(step, float(loss.data))
+        step_in_accum += 1
+        if step_in_accum == accum_steps:
+            opt.step()
+            opt.zero_grad()
+            step_in_accum = 0
 
-pred = model(Tensor(X)).sigmoid()
-print("pred:", pred.data)
+    # handle leftovers (general case)
+    if step_in_accum != 0:
+        opt.step()
+        opt.zero_grad()
+
+    if epoch % 200 == 0:
+        print(epoch, loss_sum / (X.shape[0] / micro_batch_size))
+
 
