@@ -81,6 +81,8 @@ for epoch in range(2000):
         opt.zero_grad()
 
     if epoch % 200 == 0:
-        print(epoch, loss_sum / (X.shape[0] / micro_batch_size))
+        preds = model(Tensor(X)).sigmoid().data
+        acc = np.mean((preds > 0.5) == Y)
+        print(epoch, loss_sum / (X.shape[0] / micro_batch_size), "acc", acc)
 
 
