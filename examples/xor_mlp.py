@@ -1,7 +1,7 @@
 import numpy as np
 from tinygrad.tensor import Tensor
 from tinygrad.nn import MLP
-from tinygrad.optim import SGD
+from tinygrad.optim import SGD, Adam
 
 def iterate_minibatches(X, Y, batch_size=4, shuffle=True):
     N = X.shape[0]
@@ -27,7 +27,8 @@ Y = np.array([[0.],[1.],[1.],[0.]])
 
 model = MLP(2, 8, 1)
 
-opt = SGD(model.parameters(), lr=0.1)
+# opt = SGD(model.parameters(), lr=0.1)
+opt = Adam(model.parameters(), lr=0.01)  # Adam likes smaller LR than SGD
 
 accum_steps = 4
 micro_batch_size = 1
@@ -57,6 +58,7 @@ for epoch in range(2000):
     opt.zero_grad()
     step_in_accum = 0
     loss_sum = 0.0  # track true loss over epoch
+    num_samples = 0
 
     for xb, yb in iterate_minibatches(X, Y, batch_size=micro_batch_size, shuffle=True):
         x = Tensor(xb, requires_grad=False)
@@ -68,9 +70,14 @@ for epoch in range(2000):
 
         loss_scaled = loss_raw * (1.0 / accum_steps)
         loss_scaled.backward()
+        num_samples += y.data.shape[0]
 
         step_in_accum += 1
         if step_in_accum == accum_steps:
+            
+            if epoch % 200 == 0:
+                print("W1 grad std:", model.l1.W.grad.std())
+            
             opt.step()
             opt.zero_grad()
             step_in_accum = 0
@@ -83,9 +90,9 @@ for epoch in range(2000):
     if epoch % 200 == 0:
         preds = model(Tensor(X)).sigmoid().data
         acc = np.mean((preds > 0.5) == Y)
-        print(epoch, loss_sum / (X.shape[0] / micro_batch_size), "acc", acc)
-
-x = Tensor(np.random.randn(128, 2), requires_grad=False)
-h = model.l1(x).data
-print("h mean/std:", h.mean(), h.std())
+        print(epoch, loss_sum / num_samples, "acc", acc)
+        
+# x = Tensor(np.random.randn(128, 2), requires_grad=False)
+# h = model.l1(x).data
+# print("h mean/std:", h.mean(), h.std())
 

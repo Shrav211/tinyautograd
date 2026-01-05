@@ -55,3 +55,4 @@ class MLP(Module):
         h = self.l1(x).relu()
         y = self.l2(h)
         return y
+
