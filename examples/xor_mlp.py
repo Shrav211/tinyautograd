@@ -85,4 +85,7 @@ for epoch in range(2000):
         acc = np.mean((preds > 0.5) == Y)
         print(epoch, loss_sum / (X.shape[0] / micro_batch_size), "acc", acc)
 
+x = Tensor(np.random.randn(128, 2), requires_grad=False)
+h = model.l1(x).data
+print("h mean/std:", h.mean(), h.std())
 

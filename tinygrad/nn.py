@@ -26,9 +26,18 @@ class Module:
     
 class Linear(Module):
     #Scalar Linear Layer
-    def __init__(self, in_dim, out_dim):
-        W = np.random.randn(in_dim, out_dim) * 0.1
-        b = np.zeros((out_dim,))
+    def __init__(self, in_dim, out_dim, init="he"):
+        super().__init__()
+
+        if init == "he":
+            scale = np.sqrt(2.0 / in_dim)
+        elif init == "xavier":
+            scale = np.sqrt(2.0 / (in_dim + out_dim))
+        else:
+            raise ValueError(f"Unknown init: {init}")
+        
+        W = np.random.randn(in_dim, out_dim) * scale
+        b = np.zeros((out_dim,), dtype=float)
         
         self.W = Tensor(W, requires_grad=True)
         self.b = Tensor(b, requires_grad=True)
@@ -38,8 +47,9 @@ class Linear(Module):
     
 class MLP(Module):
     def __init__(self, in_dim, hidden_dim, out_dim):
-        self.l1 = Linear(in_dim, hidden_dim)
-        self.l2 = Linear(hidden_dim, out_dim)
+        super().__init__()
+        self.l1 = Linear(in_dim, hidden_dim, init="he")
+        self.l2 = Linear(hidden_dim, out_dim, init="xavier")
 
     def __call__(self, x: Tensor) -> Tensor:
         h = self.l1(x).relu()
