@@ -141,9 +141,9 @@ class Tensor:
         out._backward = _backward
         return out
     
-    def sum(self):
+    def sum(self, axis=None, keepdims=False):
 
-        out = Tensor(self.data.sum(), requires_grad=self.requires_grad)
+        out = Tensor(self.data.sum(axis=axis, keepdims=keepdims), requires_grad=self.requires_grad)
         out._prev = {self}
 
         def _backward():
@@ -152,10 +152,56 @@ class Tensor:
             
             if self.requires_grad:
                 self.__init_grad()
-                self.grad += np.ones_like(self.data) * out.grad
+                grad = out.grad
+
+                # If axis is None: sum over all elements -> upstream grad is scalar (or shape == ())
+                # Just broadcast it to the input shape.
+                if axis is None:
+                    self.grad += np.ones_like(self.data) * grad
+                    return
+
+                # Normalize axis to a tuple
+                axes = (axis,) if isinstance(axis, int) else tuple(axis)
+
+                # Convert negative axes
+                axes = tuple([a if a >= 0 else a + self.data.ndim for a in axes])
+
+                # If keepdims=False, reinsert reduced dims for broadcasting
+                if not keepdims:
+                    for a in sorted(axes):
+                        grad = np.expand_dims(grad, axis=a)
+
+                # Broadcast to input shape
+                self.grad += np.broadcast_to(grad, self.data.shape)
+
+                #Broadcast grad to input shape
+                grad_full = np.broadcast_to(grad, self.data.shape)
+                self.grad += grad_full    
 
         out._backward = _backward
         return out
+
+    def mean(self, axis=None, keepdims=False):
+        if axis is None:
+            denom = self.data.size
+        else:
+            axes = (axis,) if isinstance(axis, int) else tuple(axis)
+            axes = tuple([a if a >= 0 else a + self.data.ndim for a in axes])
+            denom = 1
+            for a in axes:
+                denom *= self.data.shape[a]
+        return self.sum(axis=axis, keepdims=keepdims) * (1.0 / denom)
+
+
+    def __truediv__(self, other):
+        if not isinstance(other, Tensor):
+            other = Tensor(other, requires_grad=False)
+        return self * (other ** -1)
+
+    def __rtruediv__(self, other):
+        if not isinstance(other, Tensor):
+            other = Tensor(other, requires_grad=False)
+        return other * (self ** -1)
 
     def zero_grad(self):
         self.grad = None

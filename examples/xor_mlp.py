@@ -1,6 +1,6 @@
 import numpy as np
 from tinygrad.tensor import Tensor
-from tinygrad.nn import MLP
+from tinygrad.nn import MLP, LayerNorm
 from tinygrad.optim import SGD, AdamW
 
 def iterate_minibatches(X, Y, batch_size=4, shuffle=True):
@@ -96,4 +96,10 @@ for epoch in range(2000):
 # x = Tensor(np.random.randn(128, 2), requires_grad=False)
 # h = model.l1(x).data
 # print("h mean/std:", h.mean(), h.std())
+
+x = Tensor(np.random.randn(2, 3), requires_grad=True)
+y = x.sum()        # axis=None
+y.backward()
+print(x.grad.shape, x.grad)
+
 

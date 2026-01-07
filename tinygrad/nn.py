@@ -48,11 +48,35 @@ class Linear(Module):
 class MLP(Module):
     def __init__(self, in_dim, hidden_dim, out_dim):
         super().__init__()
-        self.l1 = Linear(in_dim, hidden_dim, init="he")
-        self.l2 = Linear(hidden_dim, out_dim, init="xavier")
+        self.l1 = Linear(in_dim, hidden_dim)
+        self.ln1 = LayerNorm(hidden_dim)
+        self.l2 = Linear(hidden_dim, out_dim)
 
     def __call__(self, x: Tensor) -> Tensor:
-        h = self.l1(x).relu()
+        h = self.l1(x)
+        h = self.ln1(h)
+        h = h.relu()
         y = self.l2(h)
         return y
+    
+class LayerNorm(Module):
+    def __init__(self, dim, eps=1e-5):
+        super().__init__()
+        self.eps = eps
+
+        #Learnable parameters
+        self.gamma = Tensor(np.ones((1, dim), dtype=float), requires_grad=True)
+        self.beta = Tensor(np.zeros((1, dim), dtype=float), requires_grad=True)
+
+    def __call__(self, x: Tensor) -> Tensor:
+        #Normalize over last dimensions (features)
+        mu = x.mean(axis=-1, keepdims=True)
+        var = ((x - mu) ** 2).mean(axis=-1, keepdims=True)
+
+        inv_std = (var + self.eps) ** -0.5
+        xhat = (x - mu) * inv_std
+
+        return xhat * self.gamma + self.beta
+    
+
 
