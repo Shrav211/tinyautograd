@@ -14,12 +14,13 @@ class SGD:
             if p.requires_grad:
                 p.data -= self.lr * p.grad
 
-class Adam:
-    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8):
+class AdamW:
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=1e-12):
         self.params = list(params)
         self.lr = lr
         self.beta1, self.beta2 = betas
         self.eps = eps
+        self.weight_decay = weight_decay
 
         #state
         self.t = 0
@@ -27,8 +28,8 @@ class Adam:
         self.v = {} # second moment
 
         for p in self.params:
-            self.m[id(p)] = np.zeros_like(p.data, dtype=float)
-            self.v[id(p)] = np.zeros_like(p.data, dtype=float)
+            self.m[id(p)] = np.zeros_like(p.data)
+            self.v[id(p)] = np.zeros_like(p.data)
 
     def zero_grad(self):
         for p in self.params:
@@ -43,16 +44,19 @@ class Adam:
                 continue
 
             g = p.grad
-            key = id(p)
+            pid = id(p)
 
             #update biased moments
-            self.m[key] = b1 * self.m[key] + (1 - b1) * g
-            self.v[key] = b2 * self.v[key] + (1 - b2) * (g * g)
+            self.m[pid] = b1 * self.m[pid] + (1 - b1) * g
+            self.v[pid] = b2 * self.v[pid] + (1 - b2) * (g * g)
 
             #bias correction
-            m_hat = self.m[key] / (1 - (b1 ** self.t))
-            v_hat = self.v[key] / (1 - (b2 ** self.t))
+            m_hat = self.m[pid] / (1 - (b1 ** self.t))
+            v_hat = self.v[pid] / (1 - (b2 ** self.t))
 
             #parameter update
             p.data -= self.lr * m_hat / (np.sqrt(v_hat) + self.eps)
+
+            #decoupled weight decay
+            p.data -= self.lr * self.weight_decay * p.data
             
