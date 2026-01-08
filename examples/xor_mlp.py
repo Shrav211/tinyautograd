@@ -70,15 +70,11 @@ for epoch in range(2000):
 
         loss_scaled = loss_raw * (1.0 / accum_steps)
         loss_scaled.backward()
+
         num_samples += y.data.shape[0]
-
         step_in_accum += 1
+        
         if step_in_accum == accum_steps:
-            
-            if epoch % 200 == 0:
-                # print("W1 grad std:", model.l1.W.grad.std())
-                print("||W1||:", np.linalg.norm(model.l1.W.data))
-
             opt.step()
             opt.zero_grad()
             step_in_accum = 0
@@ -89,17 +85,12 @@ for epoch in range(2000):
         opt.zero_grad()
 
     if epoch % 200 == 0:
+        model.eval()
         preds = model(Tensor(X)).sigmoid().data
         acc = np.mean((preds > 0.5) == Y)
+        model.train()
+
         print(epoch, loss_sum / num_samples, "acc", acc)
 
-# x = Tensor(np.random.randn(128, 2), requires_grad=False)
-# h = model.l1(x).data
-# print("h mean/std:", h.mean(), h.std())
-
-x = Tensor(np.random.randn(2, 3), requires_grad=True)
-y = x.sum()        # axis=None
-y.backward()
-print(x.grad.shape, x.grad)
 
 

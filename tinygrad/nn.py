@@ -2,6 +2,39 @@ from .tensor import Tensor
 import numpy as np
 
 class Module:
+    def __init__(self):
+        self.training = True
+
+    def train(self):
+        self.training = True
+        for v in self.__dict__.values():
+            if isinstance(v, Module):
+                v.train()
+            elif isinstance(v, (list, tuple)):
+                for item in v:
+                    if isinstance(item, Module):
+                        item.train()
+            elif isinstance(v, dict):
+                for item in v.values():
+                    if isinstance(item, Module):
+                        item.train()
+        return self
+
+    def eval(self):
+        self.training = False
+        for v in self.__dict__.values():
+            if isinstance(v, Module):
+                v.eval()
+            elif isinstance(v, (list, tuple)):
+                for item in v:
+                    if isinstance(item, Module):
+                        item.eval()
+            elif isinstance(v, dict):
+                for item in v.values():
+                    if isinstance(item, Module):
+                        item.eval()
+        return self
+
     def parameters(self):
         params = []
 
@@ -10,14 +43,14 @@ class Module:
                 if obj.requires_grad:
                     params.append(obj)
             elif isinstance(obj, Module):
-                for v in obj.__dict__.values():
-                    collect(v)
+                for vv in obj.__dict__.values():
+                    collect(vv)
             elif isinstance(obj, (list, tuple)):
-                for v in obj:
-                    collect(v)
+                for vv in obj:
+                    collect(vv)
             elif isinstance(obj, dict):
-                for v in obj.values():
-                    collect(v)
+                for vv in obj.values():
+                    collect(vv)
 
         for v in self.__dict__.values():
             collect(v)
@@ -46,18 +79,19 @@ class Linear(Module):
         return (x @ self.W) + self.b
     
 class MLP(Module):
-    def __init__(self, in_dim, hidden_dim, out_dim):
+    def __init__(self, in_dim, hidden_dim, out_dim, dropout_p=0.0):
         super().__init__()
         self.l1 = Linear(in_dim, hidden_dim)
         self.ln1 = LayerNorm(hidden_dim)
+        self.drop = Dropout(dropout_p)
         self.l2 = Linear(hidden_dim, out_dim)
 
     def __call__(self, x: Tensor) -> Tensor:
         h = self.l1(x)
         h = self.ln1(h)
         h = h.relu()
-        y = self.l2(h)
-        return y
+        h = self.drop(h)
+        return self.l2(h)
     
 class LayerNorm(Module):
     def __init__(self, dim, eps=1e-5):
@@ -77,6 +111,19 @@ class LayerNorm(Module):
         xhat = (x - mu) * inv_std
 
         return xhat * self.gamma + self.beta
-    
 
+class Dropout(Module):
+    def __init__(self, p=0.5):
+        super().__init__()
+        assert 0.0 <= p < 1.0
+        self.p = p
+
+    def __call__(self, x: Tensor) -> Tensor:
+        if (not self.training) or self.p == 0.0:
+            return x
+        
+        q = 1.0 - self.p
+        mask = (np.random.rand(*x.data.shape) < q).astype(x.data.dtype)
+        # inverted dropout: scale so expectation matches
+        return x * Tensor(mask / q, requires_grad=False)
 
