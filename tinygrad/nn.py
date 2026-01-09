@@ -78,17 +78,32 @@ class Linear(Module):
     def __call__(self, x: Tensor) -> Tensor:
         return (x @ self.W) + self.b
     
-class MLP(Module):
+class MLP_LN(Module):
     def __init__(self, in_dim, hidden_dim, out_dim, dropout_p=0.0):
         super().__init__()
         self.l1 = Linear(in_dim, hidden_dim)
-        self.ln1 = LayerNorm(hidden_dim)
+        self.norm = LayerNorm(hidden_dim)
         self.drop = Dropout(dropout_p)
         self.l2 = Linear(hidden_dim, out_dim)
 
     def __call__(self, x: Tensor) -> Tensor:
         h = self.l1(x)
-        h = self.ln1(h)
+        h = self.norm(h)
+        h = h.relu()
+        h = self.drop(h)
+        return self.l2(h)
+    
+class MLP_BN(Module):
+    def __init__(self, in_dim, hidden_dim, out_dim, dropout_p=0.0):
+        super().__init__()
+        self.l1 = Linear(in_dim, hidden_dim)
+        self.norm = BatchNorm1d(hidden_dim)
+        self.drop = Dropout(dropout_p)
+        self.l2 = Linear(hidden_dim, out_dim)
+
+    def __call__(self, x: Tensor) -> Tensor:
+        h = self.l1(x)
+        h = self.norm(h)
         h = h.relu()
         h = self.drop(h)
         return self.l2(h)
@@ -126,4 +141,37 @@ class Dropout(Module):
         mask = (np.random.rand(*x.data.shape) < q).astype(x.data.dtype)
         # inverted dropout: scale so expectation matches
         return x * Tensor(mask / q, requires_grad=False)
+    
+class BatchNorm1d(Module):
+    def __init__(self, dim, eps=1e-5, momentum=0.1):
+        super().__init__()
+        self.eps = eps
+        self.momentum = momentum
+
+        #learnable params
+        self.gamma = Tensor(np.ones((1, dim), dtype=float), requires_grad=True)
+        self.beta = Tensor(np.zeros((1, dim), dtype=float), requires_grad=True)
+
+        #running stats not for learning
+        self.running_mean = np.zeros((1, dim), dtype=float)
+        self.running_var = np.ones((1, dim), dtype=float)
+
+    def __call__(self, x: Tensor) -> Tensor:
+        if self.training:
+            # batch stats over N dimension
+            mu = x.mean(axis=0, keepdims=True) # (1, D)
+            var = ((x - mu) ** 2).mean(axis=0, keepdims=True) # (1, D)
+
+            #update running stats (EMA)
+            self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mu.data
+            self.running_var = (1 - self.momentum) * self.running_var + self.momentum * var.data
+
+            xhat = (x - mu) * ((var + self.eps) ** -0.5)
+        else:
+            # use stored running stats
+            mu = Tensor(self.running_mean, requires_grad=False)
+            var = Tensor(self.running_var, requires_grad=False)
+            xhat = (x - mu) * ((var + self.eps) ** -0.5)
+
+        return xhat * self.gamma + self.beta
 

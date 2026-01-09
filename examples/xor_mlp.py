@@ -27,7 +27,6 @@ Y = np.array([[0.],[1.],[1.],[0.]])
 
 model = MLP(2, 8, 1)
 
-# opt = SGD(model.parameters(), lr=0.1)
 opt = AdamW(model.parameters(), lr=0.01, weight_decay=1e-2)  # AdamW likes smaller LR than SGD
 
 accum_steps = 4
