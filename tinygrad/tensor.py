@@ -317,6 +317,44 @@ class Tensor:
 
         out._backward = _backward
         return out
+    
+    def max(self, axis=None, keepdims=False):
+        # used for numerical stability; treat as constant (no grad)
+        return Tensor(np.max(self.data, axis=axis, keepdims=keepdims), requires_grad=False)
+
+    def exp(self):
+        out = Tensor(np.exp(self.data), requires_grad=self.requires_grad)
+        out._prev = {self}
+        def _backward():
+            if out.grad is None: return
+            if self.requires_grad:
+                self.__init_grad()
+                self.grad += _unbroadcast(out.grad * out.data, self.data.shape)
+        out._backward = _backward
+        return out
+    
+    def mean(self, axis=None, keepdims=False):
+        if axis is None:
+            denom = self.data.size
+        else:
+            # number of elements reduced
+            if isinstance(axis, int): axis_tuple = (axis,)
+            else: axis_tuple = tuple(axis)
+            denom = 1
+            for ax in axis_tuple:
+                denom *= self.data.shape[ax]
+        return self.sum(axis=axis, keepdims=keepdims) * (1.0 / denom)
+
+    def logsumexp(self, axis=None, keepdims=False):
+        m = self.max(axis=axis, keepdims=True)               # constant Tensor
+        shifted = self - m
+        s = shifted.exp().sum(axis=axis, keepdims=True).log()
+        out = s + m
+        if not keepdims and axis is not None:
+            # optional squeeze behavior if you implemented it; otherwise keepdims=True everywhere
+            pass
+        return out
+
 
 
 
