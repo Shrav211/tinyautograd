@@ -3,6 +3,7 @@ from tinygrad.tensor import Tensor
 from tinygrad.nn import Linear, Module
 from tinygrad.optim import AdamW
 from tinygrad.losses import cross_entropy_logits
+import matplotlib.pyplot as plt
 
 def make_blobs(n_per_class=400, seed=0):
     rng = np.random.RandomState(seed)
@@ -51,7 +52,6 @@ def accuracy_from_logits(logits_np, y_np):
     pred = np.argmax(logits_np, axis=1)
     return np.mean(pred == y_np)
 
-
 # Simple 2-layer MLP for multiclass
 class MLP3(Module):
     def __init__(self, in_dim=2, hidden=32, out_dim=3):
@@ -60,7 +60,6 @@ class MLP3(Module):
 
     def __call__(self, x: Tensor) -> Tensor:
         return self.l2(self.l1(x).relu())
-
 
 def main():
     X, y = make_blobs(n_per_class=400, seed=0)
@@ -103,7 +102,30 @@ def main():
     va_logits = model(Tensor(Xva, requires_grad=False)).data
     va_acc = accuracy_from_logits(va_logits, yva)
     print("FINAL val_acc:", va_acc)
+    plot_decision_boundary(model, Xva, yva, title="Val decision boundary")
 
+def plot_decision_boundary(model, X, y, title=""):
+    # grid
+    x_min, x_max = X[:,0].min()-1, X[:,0].max()+1
+    y_min, y_max = X[:,1].min()-1, X[:,1].max()+1
+    xx, yy = np.meshgrid(
+        np.linspace(x_min, x_max, 200),
+        np.linspace(y_min, y_max, 200)
+    )
+    grid = np.c_[xx.ravel(), yy.ravel()].astype(np.float32)
+
+    model.eval()
+    logits = model(Tensor(grid, requires_grad=False)).data
+    model.train()
+
+    pred = np.argmax(logits, axis=1).reshape(xx.shape)
+
+    plt.figure()
+    plt.contourf(xx, yy, pred, alpha=0.3)
+    plt.scatter(X[:,0], X[:,1], c=y, s=10)
+    plt.title(title)
+    plt.show()
 
 if __name__ == "__main__":
     main()
+    
