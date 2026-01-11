@@ -1,25 +1,43 @@
 import numpy as np
 
-def _unbroadcast(grad, target_shape):
-    g = np.array(grad)
+# def _unbroadcast(grad, target_shape):
+#     g = np.array(grad)
 
-    # If target is scalar, everything was broadcast to something bigger → sum all
-    if target_shape == ():
-        return np.array(g.sum())
+#     # If target is scalar, everything was broadcast to something bigger → sum all
+#     if target_shape == ():
+#         return np.array(g.sum())
 
-    # If grad has extra leading dims, sum them out
-    while g.ndim > len(target_shape):
-        g = g.sum(axis=0)
+#     # If grad has extra leading dims, sum them out
+#     while g.ndim > len(target_shape):
+#         g = g.sum(axis=0)
 
-    # Now same ndim; for broadcasted dims (target=1), sum over that axis
-    # Iterate from last axis backward to avoid axis index shifting issues
-    for axis in range(len(target_shape) - 1, -1, -1):
-        ts = target_shape[axis]
-        gs = g.shape[axis]
-        if ts == 1 and gs != 1:
-            g = g.sum(axis=axis, keepdims=True)
+#     # Now same ndim; for broadcasted dims (target=1), sum over that axis
+#     # Iterate from last axis backward to avoid axis index shifting issues
+#     for axis in range(len(target_shape) - 1, -1, -1):
+#         ts = target_shape[axis]
+#         gs = g.shape[axis]
+#         if ts == 1 and gs != 1:
+#             g = g.sum(axis=axis, keepdims=True)
 
-    return g
+#     return g
+
+def _unbroadcast(grad, shape):
+    """
+    Reduce grad to match `shape` by summing over broadcasted dimensions.
+    grad: numpy array
+    shape: tuple (original tensor shape)
+    """
+    # 1) If grad has extra leading dims, sum them away
+    while len(grad.shape) > len(shape):
+        grad = grad.sum(axis=0)
+
+    # 2) Sum over axes where original shape had size 1
+    for i, (gdim, sdim) in enumerate(zip(grad.shape, shape)):
+        if sdim == 1 and gdim != 1:
+            grad = grad.sum(axis=i, keepdims=True)
+
+    return grad
+
 
 #tensor should contain value, gradient, who created it and the how to push the gradients backwards
 class Tensor:
@@ -80,16 +98,17 @@ class Tensor:
         return out
 
     def __mul__(self, other):
-        
-        other = other if isinstance(other, Tensor) else Tensor(other)
+        if not isinstance(other, Tensor):
+            other = Tensor(other, requires_grad=False)
 
-        out = Tensor(self.data * other.data, requires_grad=self.requires_grad or other.requires_grad)
+        out = Tensor(self.data * other.data,
+                    requires_grad=self.requires_grad or other.requires_grad)
         out._prev = {self, other}
 
         def _backward():
             if out.grad is None:
                 return
-            
+
             if self.requires_grad:
                 self.__init_grad()
                 grad_self = out.grad * other.data
@@ -97,8 +116,8 @@ class Tensor:
 
             if other.requires_grad:
                 other.__init_grad()
-                grad_self = out.grad * self.data
-                other.grad += _unbroadcast(grad_self, other.data.shape)
+                grad_other = out.grad * self.data
+                other.grad += _unbroadcast(grad_other, other.data.shape)
 
         out._backward = _backward
         return out
@@ -142,41 +161,35 @@ class Tensor:
         return out
     
     def sum(self, axis=None, keepdims=False):
-
-        out = Tensor(self.data.sum(axis=axis, keepdims=keepdims), requires_grad=self.requires_grad)
+        out = Tensor(self.data.sum(axis=axis, keepdims=keepdims),
+                    requires_grad=self.requires_grad)
         out._prev = {self}
 
         def _backward():
             if out.grad is None:
                 return
-            
-            if self.requires_grad:
-                self.__init_grad()
-                grad = out.grad
+            if not self.requires_grad:
+                return
 
-                # If axis is None: sum over all elements -> upstream grad is scalar (or shape == ())
-                # Just broadcast it to the input shape.
-                if axis is None:
-                    self.grad += np.ones_like(self.data) * grad
-                    return
+            self.__init_grad()  # or your __init_grad, use the correct name
+            grad = out.grad
 
-                # Normalize axis to a tuple
-                axes = (axis,) if isinstance(axis, int) else tuple(axis)
+            # If summed over all elements, grad is scalar-like -> broadcast to input
+            if axis is None:
+                self.grad += np.ones_like(self.data) * grad
+                return
 
-                # Convert negative axes
-                axes = tuple([a if a >= 0 else a + self.data.ndim for a in axes])
+            # Normalize axis to tuple
+            axes = (axis,) if isinstance(axis, int) else tuple(axis)
+            axes = tuple(a if a >= 0 else a + self.data.ndim for a in axes)
 
-                # If keepdims=False, reinsert reduced dims for broadcasting
-                if not keepdims:
-                    for a in sorted(axes):
-                        grad = np.expand_dims(grad, axis=a)
+            # If keepdims=False, reinsert reduced dims so broadcast works
+            if not keepdims:
+                for a in sorted(axes):
+                    grad = np.expand_dims(grad, axis=a)
 
-                # Broadcast to input shape
-                self.grad += np.broadcast_to(grad, self.data.shape)
-
-                #Broadcast grad to input shape
-                grad_full = np.broadcast_to(grad, self.data.shape)
-                self.grad += grad_full    
+            # Broadcast once to input shape
+            self.grad += np.broadcast_to(grad, self.data.shape)
 
         out._backward = _backward
         return out

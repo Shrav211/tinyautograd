@@ -22,5 +22,5 @@ def cross_entropy_logits(logits: Tensor, y: np.ndarray):
     z_y = (logits * Y).sum(axis=1, keepdims=True)
 
     # loss per sample then mean
-    loss = (lse - z_y).mean()
+    loss = (lse - z_y).sum() * (1.0 / N)                      # scalar
     return loss
