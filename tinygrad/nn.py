@@ -57,6 +57,113 @@ class Module:
 
         return params
     
+    def _named_state(self, prefix=""):
+        for k, v in self.__dict__.items():
+            if k == "training":
+                continue
+
+
+            name = f"{prefix}{k}" if prefix == "" else f"{prefix}.{k}"
+
+            # learnable parameters
+            if isinstance(v, Tensor):
+                if v.requires_grad:
+                    yield (name, v, "param")
+
+            # Buffers (non-learnable numpy arrays)
+            elif isinstance(v, np.ndarray):
+                # store BN running stats etc.
+                yield (name, v, "buffer")
+
+            # Submodules
+            elif isinstance(v, Module):
+                yield from v._named_state(prefix=name)
+
+            # Containers
+            elif isinstance(v, (list, tuple)):
+                for i, item in enumerate(v):
+                    subname = f"{name}.{i}"
+                    if isinstance(item, Module):
+                        yield from item._named_state(prefix=subname)
+                    elif isinstance(item, Tensor) and item.requires_grad:
+                        yield (subname, item, "param")
+                    elif isinstance(item, np.ndarray):
+                        yield (subname, item, "buffer")
+
+            elif isinstance(v, dict):
+                for kk, item in v.items():
+                    subname = f"{name}.{kk}"
+                    if isinstance(item, Module):
+                        yield from item._named_state(prefix=subname)
+                    elif isinstance(item, Tensor) and item.requires_grad:
+                        yield (subname, item, "param")
+                    elif isinstance(item, np.ndarray):
+                        yield (subname, item, "buffer")
+        
+    def state_dict(self):
+        sd = {}
+        for name, obj, kind in self._named_state(prefix=""):
+            if kind == "param":
+                sd[name] = obj.data.copy()
+            elif kind == "buffer":
+                sd[name] = obj.copy()
+        return sd
+        
+    def load_state_dict(self, sd, strict=True):
+        missing = []
+        unexpected = set(sd.keys())
+
+        for name, obj, kind in self._named_state(prefix=""):
+            if name not in sd:
+                missing.append(name)
+                continue
+
+            unexpected.discard(name)
+            val = sd[name]
+
+            if kind == "param":
+                # Tensor parameter
+                if obj.data.shape != val.shape:
+                    raise ValueError(f"Shape mismatch for {name}: {obj.data.shape} vs {val.shape}")
+                obj.data = val.copy()
+
+            elif kind == "buffer":
+                # numpy buffer
+                if obj.shape != val.shape:
+                    raise ValueError(f"Shape mismatch for {name}: {obj.shape} vs {val.shape}")
+                # assign back into attribute (since obj is a numpy array, rebinding is easiest)
+                self._set_attr_by_name(name, val.copy())
+
+        if strict:
+            if missing:
+                raise KeyError(f"Missing keys in state_dict: {missing}")
+            if unexpected:
+                raise KeyError(f"Unexpected keys in state_dict: {sorted(unexpected)}")
+
+        return {"missing": missing, "unexpected": sorted(unexpected)}
+
+    def _set_attr_by_name(self, name, value):
+        """
+        Sets nested attribute by dotted path, e.g. "norm.running_mean".
+        Supports numeric list indices too, e.g. "layers.0.W" if you ever use lists.
+        """
+        parts = name.split(".")
+        obj = self
+
+        for p in parts[:-1]:
+            # list index?
+            if p.isdigit():
+                obj = obj[int(p)]
+            else:
+                obj = getattr(obj, p)
+
+        last = parts[-1]
+        if last.isdigit():
+            obj[int(last)] = value
+        else:
+            setattr(obj, last, value)
+
+    
 class Linear(Module):
     #Scalar Linear Layer
     def __init__(self, in_dim, out_dim, init="he"):
