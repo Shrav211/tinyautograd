@@ -47,7 +47,9 @@ class Tensor:
         self.grad = None
         self.requires_grad = requires_grad
         self._prev = set()
-        self._backward = lambda: None  
+        self._backward = lambda: None
+        self._op = ""
+        self._name = None
 
     def backward(self):
         # Implement the backward pass to compute gradients
@@ -76,11 +78,12 @@ class Tensor:
             self.grad = np.zeros_like(self.data)
 
     def __add__(self, other):
-        
+
         other = other if isinstance(other, Tensor) else Tensor(other)
 
         out = Tensor(self.data + other.data, requires_grad=self.requires_grad or other.requires_grad)
         out._prev = {self, other}
+        out._op = "add"
 
         def _backward():
             if out.grad is None:
@@ -98,12 +101,14 @@ class Tensor:
         return out
 
     def __mul__(self, other):
+
         if not isinstance(other, Tensor):
             other = Tensor(other, requires_grad=False)
 
         out = Tensor(self.data * other.data,
                     requires_grad=self.requires_grad or other.requires_grad)
         out._prev = {self, other}
+        out._op = "mul"
 
         def _backward():
             if out.grad is None:
@@ -126,6 +131,7 @@ class Tensor:
 
         out = Tensor((-1) * self.data, requires_grad=self.requires_grad)
         out._prev = {self}
+        out._op = "neg"
 
         def _backward():
             if out.grad is None:
@@ -147,6 +153,7 @@ class Tensor:
 
         out = Tensor(self.data ** p, requires_grad=self.requires_grad)
         out._prev = {self}
+        out._op = "pow"
 
         def _backward():
             if out.grad is None:
@@ -164,6 +171,7 @@ class Tensor:
         out = Tensor(self.data.sum(axis=axis, keepdims=keepdims),
                     requires_grad=self.requires_grad)
         out._prev = {self}
+        out._op = "sum"
 
         def _backward():
             if out.grad is None:
@@ -232,7 +240,8 @@ class Tensor:
         
         out = Tensor(np.maximum(0, self.data), requires_grad=self.requires_grad)
         out._prev = {self}
-
+        out._op = "relu"
+        
         def _backward():
             if out.grad is None:
                 return
@@ -254,6 +263,7 @@ class Tensor:
 
         out = Tensor(self.data @ other.data, requires_grad=self.requires_grad or other.requires_grad)
         out._prev = {self, other}
+        out._op = "matmul"
 
         def _backward():
             if out.grad is None:
