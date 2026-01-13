@@ -111,6 +111,7 @@ class Module:
     def load_state_dict(self, sd, strict=True):
         missing = []
         unexpected = set(sd.keys())
+        skipped = []
 
         for name, obj, kind in self._named_state(prefix=""):
             if name not in sd:
@@ -120,27 +121,38 @@ class Module:
             unexpected.discard(name)
             val = sd[name]
 
-            if kind == "param":
-                # Tensor parameter
-                if obj.data.shape != val.shape:
-                    raise ValueError(f"Shape mismatch for {name}: {obj.data.shape} vs {val.shape}")
-                obj.data = val.copy()
+            try:
+                if kind == "param":
+                    if obj.data.shape != val.shape:
+                        skipped.append((name, obj.data.shape, val.shape))
+                        continue
+                    obj.data = val.copy()
 
-            elif kind == "buffer":
-                # numpy buffer
-                if obj.shape != val.shape:
-                    raise ValueError(f"Shape mismatch for {name}: {obj.shape} vs {val.shape}")
-                # assign back into attribute (since obj is a numpy array, rebinding is easiest)
-                self._set_attr_by_name(name, val.copy())
+                elif kind == "buffer":
+                    if obj.shape != val.shape:
+                        skipped.append((name, obj.shape, val.shape))
+                        continue
+                    self._set_attr_by_name(name, val.copy())
+            except Exception as e:
+                skipped.append((name, "error", str(e)))
+                continue
+
+        report = {
+            "missing": missing,
+            "unexpected": sorted(unexpected),
+            "skipped": skipped,
+        }
 
         if strict:
             if missing:
                 raise KeyError(f"Missing keys in state_dict: {missing}")
             if unexpected:
                 raise KeyError(f"Unexpected keys in state_dict: {sorted(unexpected)}")
+            if skipped:
+                raise ValueError(f"Some keys had shape mismatch or load errors: {skipped}")
 
-        return {"missing": missing, "unexpected": sorted(unexpected)}
-
+        return report
+    
     def _set_attr_by_name(self, name, value):
         """
         Sets nested attribute by dotted path, e.g. "norm.running_mean".
