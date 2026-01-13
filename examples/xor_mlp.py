@@ -2,6 +2,7 @@ import numpy as np
 from tinygrad.tensor import Tensor
 from tinygrad.nn import MLP, LayerNorm
 from tinygrad.optim import SGD, AdamW
+from tinygrad.serialization import save_state_dict, load_state_dict
 
 def iterate_minibatches(X, Y, batch_size=4, shuffle=True):
     N = X.shape[0]
@@ -90,6 +91,3 @@ for epoch in range(2000):
         model.train()
 
         print(epoch, loss_sum / num_samples, "acc", acc)
-
-
-

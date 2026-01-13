@@ -103,6 +103,13 @@ def main():
     va_acc = accuracy_from_logits(va_logits, yva)
     print("FINAL val_acc:", va_acc)
     plot_decision_boundary(model, Xva, yva, title="Val decision boundary")
+    for name, m in model.named_modules():
+        print(name, type(m).__name__)
+    for name, p in model.named_parameters():
+        print(name, p.data.shape)
+    for name, p in model.named_parameters():
+        gstd = float(p.grad.std()) if hasattr(p.grad, "std") else float(np.std(p.grad))
+        print(name, gstd)
 
 def plot_decision_boundary(model, X, y, title=""):
     # grid
@@ -128,4 +135,5 @@ def plot_decision_boundary(model, X, y, title=""):
 
 if __name__ == "__main__":
     main()
+    
     

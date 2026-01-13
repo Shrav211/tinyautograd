@@ -62,7 +62,6 @@ class Module:
             if k == "training":
                 continue
 
-
             name = f"{prefix}{k}" if prefix == "" else f"{prefix}.{k}"
 
             # learnable parameters
@@ -163,7 +162,48 @@ class Module:
         else:
             setattr(obj, last, value)
 
-    
+    def named_modules(self, prefix="", include_self=True):
+        # Yields (name, module) for this module and all submodules
+        if include_self:
+            yield (prefix, self)
+
+        def walk(obj, name):
+            if isinstance(obj, Module):
+                yield (name, obj)
+                for k, v in obj.__dict__.items():
+                    if k == "training":
+                        continue
+                    child_name = f"{name}.{k}" if name else k
+                    yield from walk(v, child_name)
+
+            elif isinstance(obj, (list, tuple)):
+                for i, item in enumerate(obj):
+                    child_name = f"{name}.{i}" if name else str(i)
+                    yield from walk(item, child_name)
+
+            elif isinstance(obj, dict):
+                for kk, item in obj.items():
+                    child_name = f"{name}.{kk}" if name else str(kk)
+                    yield from walk(item, child_name)
+
+        for k, v in self.__dict__.items():
+            if k == "training":
+                continue
+            child_name = f"{prefix}.{k}" if prefix else k
+            yield from walk(v, child_name)
+        
+    def named_parameters(self, prefix=""):
+        # Yield (name, Tensor) for all parameters
+        for name, obj, kind in self._named_state(prefix=prefix):
+            if kind == "param":
+                yield (name, obj)
+
+    def named_buffers(self, prefix=""):
+        #yields (name, np.ndarray)
+        for name, obj, kind in self._named_state(prefix=prefix):
+            if kind == "buffer":
+                yield (name, obj)
+
 class Linear(Module):
     #Scalar Linear Layer
     def __init__(self, in_dim, out_dim, init="he"):
