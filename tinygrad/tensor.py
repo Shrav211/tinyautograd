@@ -1,26 +1,5 @@
 import numpy as np
 
-# def _unbroadcast(grad, target_shape):
-#     g = np.array(grad)
-
-#     # If target is scalar, everything was broadcast to something bigger → sum all
-#     if target_shape == ():
-#         return np.array(g.sum())
-
-#     # If grad has extra leading dims, sum them out
-#     while g.ndim > len(target_shape):
-#         g = g.sum(axis=0)
-
-#     # Now same ndim; for broadcasted dims (target=1), sum over that axis
-#     # Iterate from last axis backward to avoid axis index shifting issues
-#     for axis in range(len(target_shape) - 1, -1, -1):
-#         ts = target_shape[axis]
-#         gs = g.shape[axis]
-#         if ts == 1 and gs != 1:
-#             g = g.sum(axis=axis, keepdims=True)
-
-#     return g
-
 def _unbroadcast(grad, shape):
     """
     Reduce grad to match `shape` by summing over broadcasted dimensions.
@@ -241,7 +220,7 @@ class Tensor:
         out = Tensor(np.maximum(0, self.data), requires_grad=self.requires_grad)
         out._prev = {self}
         out._op = "relu"
-        
+
         def _backward():
             if out.grad is None:
                 return
@@ -286,6 +265,7 @@ class Tensor:
         out_data = 1 / (1 + np.exp(-self.data))
         out = Tensor(out_data, requires_grad=self.requires_grad)
         out._prev = {self}
+        out._op = "sigmoid"
 
         def _backward():
             if out.grad is None:
@@ -301,6 +281,7 @@ class Tensor:
     def log(self):
         out = Tensor(np.log(self.data), requires_grad=self.requires_grad)
         out._prev = {self}
+        out._op = "log"
 
         def _backward():
             if out.grad is None:
@@ -315,6 +296,7 @@ class Tensor:
     def exp(self):
         out = Tensor(np.exp(self.data), requires_grad=self.requires_grad)
         out._prev = {self}
+        out._op = "exp"
 
         def _backward():
             if out.grad is None:
@@ -329,6 +311,7 @@ class Tensor:
     def abs(self):
         out = Tensor(np.abs(self.data), requires_grad=self.requires_grad)
         out._prev = {self}
+        out._op = "abs"
 
         def _backward():
             if out.grad is None:
@@ -344,17 +327,6 @@ class Tensor:
     def max(self, axis=None, keepdims=False):
         # used for numerical stability; treat as constant (no grad)
         return Tensor(np.max(self.data, axis=axis, keepdims=keepdims), requires_grad=False)
-
-    def exp(self):
-        out = Tensor(np.exp(self.data), requires_grad=self.requires_grad)
-        out._prev = {self}
-        def _backward():
-            if out.grad is None: return
-            if self.requires_grad:
-                self.__init_grad()
-                self.grad += _unbroadcast(out.grad * out.data, self.data.shape)
-        out._backward = _backward
-        return out
     
     def mean(self, axis=None, keepdims=False):
         if axis is None:

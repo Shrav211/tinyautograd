@@ -15,7 +15,7 @@ def main():
     # optional: label
     loss._name = "loss"
 
-    save_dot(loss, "graph.dot")
+    save_dot(loss, "graph.dot", mode="prune_trivial")
     print("Wrote graph.dot. Render with: dot -Tpng graph.dot -o graph.png")
 
 if __name__ == "__main__":
