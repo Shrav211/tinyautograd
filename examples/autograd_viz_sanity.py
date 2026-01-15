@@ -9,6 +9,7 @@ def main():
     y = np.array([0,1,1,0], dtype=int)  # for binary you'd use BCE; this is just graph demo
 
     model = MLP_LN(2, 8, 2, dropout_p=0.0)  # 2 classes for CE demo
+    model.label_parameters_()
     logits = model(Tensor(X, requires_grad=False))
     loss = cross_entropy_logits(logits, y)
 

@@ -216,6 +216,20 @@ class Module:
             if kind == "buffer":
                 yield (name, obj)
 
+    def label_parameters_(self, prefix=""):
+        """
+        Mutates parameter tensors in-place by setting tensor._name = full_name.
+        This is purely for visualization/debugging.
+        """
+        for name, p in self.named_parameters(prefix=prefix):
+            # only stamp if it’s a Tensor and trainable
+            try:
+                p._name = name
+            except Exception:
+                pass
+        return self
+
+
 class Linear(Module):
     #Scalar Linear Layer
     def __init__(self, in_dim, out_dim, init="he"):
