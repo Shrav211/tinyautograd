@@ -1,4 +1,5 @@
 import numpy as np
+from contextlib import contextmanager
 
 def _unbroadcast(grad, shape):
     """
@@ -17,10 +18,20 @@ def _unbroadcast(grad, shape):
 
     return grad
 
+@contextmanager
+def no_grad():
+    prev = Tensor._grad_enabled
+    Tensor._grad_enabled = False
+    try:
+        yield
+    finally:
+        Tensor._grad_enabled = prev
 
 #tensor should contain value, gradient, who created it and the how to push the gradients backwards
 class Tensor:
     #basically a tensor should represent a value or node in a graph
+    _grad_enabled = True
+
     def __init__(self, data, requires_grad=False):
         self.data = np.array(data) if not isinstance(data, np.ndarray) else data
         self.grad = None
@@ -29,6 +40,17 @@ class Tensor:
         self._backward = lambda: None
         self._op = ""
         self._name = None
+
+    @property
+    def _track_grad(self):
+        # i want to track this only if this tensor wants grad AND grad tracking is enabled globally
+        return self.requires_grad and Tensor._grad_enabled
+
+    def detach(self):
+        # Will return a new tensor that shares the same data, but no autograd history
+        out = Tensor(self.data, requires_grad=False)
+        out._op = "detach" #useful for viz
+        return out
 
     def backward(self):
         # Implement the backward pass to compute gradients
@@ -60,23 +82,28 @@ class Tensor:
 
         other = other if isinstance(other, Tensor) else Tensor(other)
 
-        out = Tensor(self.data + other.data, requires_grad=self.requires_grad or other.requires_grad)
-        out._prev = {self, other}
-        out._op = "add"
+        req = Tensor._grad_enabled and (self.requires_grad or other.requires_grad)
+        out = Tensor(self.data + other.data, requires_grad=req)
 
-        def _backward():
-            if out.grad is None:
-                return
-            
-            if self.requires_grad:
-                self.__init_grad()
-                self.grad += _unbroadcast(out.grad, self.data.shape)
+        if req:
+            out._prev = {self, other}
+            out._op = "add"
 
-            if other.requires_grad:
-                other.__init_grad()
-                other.grad += _unbroadcast(out.grad, other.data.shape)
+            def _backward():
+                if out.grad is None:
+                    return
+                
+                if self.requires_grad:
+                    self.__init_grad()
+                    self.grad += _unbroadcast(out.grad, self.data.shape)
 
-        out._backward = _backward
+                if other.requires_grad:
+                    other.__init_grad()
+                    other.grad += _unbroadcast(out.grad, other.data.shape)
+
+            out._backward = _backward
+        else:
+            out._op = "add"
         return out
 
     def __mul__(self, other):
@@ -84,43 +111,52 @@ class Tensor:
         if not isinstance(other, Tensor):
             other = Tensor(other, requires_grad=False)
 
-        out = Tensor(self.data * other.data,
-                    requires_grad=self.requires_grad or other.requires_grad)
-        out._prev = {self, other}
-        out._op = "mul"
+        req = Tensor._grad_enabled and (self.requires_grad or other.requires_grad)
+        out = Tensor(self.data * other.data, requires_grad=req)
+        
+        if req:
+            out._prev = {self, other}
+            out._op = "mul"
 
-        def _backward():
-            if out.grad is None:
-                return
+            def _backward():
+                if out.grad is None:
+                    return
 
-            if self.requires_grad:
-                self.__init_grad()
-                grad_self = out.grad * other.data
-                self.grad += _unbroadcast(grad_self, self.data.shape)
+                if self.requires_grad:
+                    self.__init_grad()
+                    grad_self = out.grad * other.data
+                    self.grad += _unbroadcast(grad_self, self.data.shape)
 
-            if other.requires_grad:
-                other.__init_grad()
-                grad_other = out.grad * self.data
-                other.grad += _unbroadcast(grad_other, other.data.shape)
+                if other.requires_grad:
+                    other.__init_grad()
+                    grad_other = out.grad * self.data
+                    other.grad += _unbroadcast(grad_other, other.data.shape)
 
-        out._backward = _backward
+            out._backward = _backward
+        else:
+            out._op = "mul"
         return out
 
     def __neg__(self):
 
-        out = Tensor((-1) * self.data, requires_grad=self.requires_grad)
-        out._prev = {self}
-        out._op = "neg"
-
-        def _backward():
-            if out.grad is None:
-                return
+        req = Tensor._grad_enabled and self.requires_grad
+        out = Tensor((-1) * self.data, requires_grad=req)
             
-            if self.requires_grad:
-                self.__init_grad()
-                self.grad += _unbroadcast(-out.grad, self.data.shape)
+        if req:    
+            out._prev = {self}
+            out._op = "neg"
 
-        out._backward = _backward
+            def _backward():
+                if out.grad is None:
+                    return
+                
+                if self.requires_grad:
+                    self.__init_grad()
+                    self.grad += _unbroadcast(-out.grad, self.data.shape)
+
+            out._backward = _backward
+        else:
+            out._op = "neg"
         return out
 
     def __sub__(self, other):
@@ -130,55 +166,64 @@ class Tensor:
 
     def __pow__(self, p):
 
-        out = Tensor(self.data ** p, requires_grad=self.requires_grad)
-        out._prev = {self}
-        out._op = "pow"
+        req = Tensor._grad_enabled and self.requires_grad
+        out = Tensor(self.data ** p, requires_grad=req)
+        
+        if req:
+            out._prev = {self}
+            out._op = "pow"
 
-        def _backward():
-            if out.grad is None:
-                return
-            
-            if self.requires_grad:
-                self.__init_grad()
-                grad_self = out.grad * (p * (self.data ** (p - 1)))
-                self.grad += _unbroadcast(grad_self, self.data.shape)
+            def _backward():
+                if out.grad is None:
+                    return
+                
+                if self.requires_grad:
+                    self.__init_grad()
+                    grad_self = out.grad * (p * (self.data ** (p - 1)))
+                    self.grad += _unbroadcast(grad_self, self.data.shape)
 
-        out._backward = _backward
+            out._backward = _backward
+        else:
+            out._op = "pow"
         return out
     
     def sum(self, axis=None, keepdims=False):
-        out = Tensor(self.data.sum(axis=axis, keepdims=keepdims),
-                    requires_grad=self.requires_grad)
-        out._prev = {self}
-        out._op = "sum"
+        
+        req = Tensor._grad_enabled and (self.requires_grad)
+        out = Tensor(self.data.sum(axis=axis, keepdims=keepdims), requires_grad=req)
+        if req:
+            out._prev = {self}
+            out._op = "sum"
 
-        def _backward():
-            if out.grad is None:
-                return
-            if not self.requires_grad:
-                return
+            def _backward():
+                if out.grad is None:
+                    return
+                if not self.requires_grad:
+                    return
 
-            self.__init_grad()  # or your __init_grad, use the correct name
-            grad = out.grad
+                self.__init_grad()  # or your __init_grad, use the correct name
+                grad = out.grad
 
-            # If summed over all elements, grad is scalar-like -> broadcast to input
-            if axis is None:
-                self.grad += np.ones_like(self.data) * grad
-                return
+                # If summed over all elements, grad is scalar-like -> broadcast to input
+                if axis is None:
+                    self.grad += np.ones_like(self.data) * grad
+                    return
 
-            # Normalize axis to tuple
-            axes = (axis,) if isinstance(axis, int) else tuple(axis)
-            axes = tuple(a if a >= 0 else a + self.data.ndim for a in axes)
+                # Normalize axis to tuple
+                axes = (axis,) if isinstance(axis, int) else tuple(axis)
+                axes = tuple(a if a >= 0 else a + self.data.ndim for a in axes)
 
-            # If keepdims=False, reinsert reduced dims so broadcast works
-            if not keepdims:
-                for a in sorted(axes):
-                    grad = np.expand_dims(grad, axis=a)
+                # If keepdims=False, reinsert reduced dims so broadcast works
+                if not keepdims:
+                    for a in sorted(axes):
+                        grad = np.expand_dims(grad, axis=a)
 
-            # Broadcast once to input shape
-            self.grad += np.broadcast_to(grad, self.data.shape)
+                # Broadcast once to input shape
+                self.grad += np.broadcast_to(grad, self.data.shape)
 
-        out._backward = _backward
+            out._backward = _backward
+        else:
+            out._op = "sum"
         return out
 
     def mean(self, axis=None, keepdims=False):
@@ -191,7 +236,6 @@ class Tensor:
             for a in axes:
                 denom *= self.data.shape[a]
         return self.sum(axis=axis, keepdims=keepdims) * (1.0 / denom)
-
 
     def __truediv__(self, other):
         if not isinstance(other, Tensor):
@@ -217,20 +261,25 @@ class Tensor:
     
     def relu(self):
         
-        out = Tensor(np.maximum(0, self.data), requires_grad=self.requires_grad)
-        out._prev = {self}
-        out._op = "relu"
+        req = Tensor._grad_enabled and self.requires_grad
+        out = Tensor(np.maximum(0, self.data), requires_grad=req)
+        
+        if req:
+            out._prev = {self}
+            out._op = "relu"
 
-        def _backward():
-            if out.grad is None:
-                return
-            if self.requires_grad:
-                self.__init_grad()
-                mask = (self.data > 0).astype(self.data.dtype)
-                grad_self = out.grad * mask
-                self.grad += _unbroadcast(grad_self, self.data.shape)
+            def _backward():
+                if out.grad is None:
+                    return
+                if self.requires_grad:
+                    self.__init_grad()
+                    mask = (self.data > 0).astype(self.data.dtype)
+                    grad_self = out.grad * mask
+                    self.grad += _unbroadcast(grad_self, self.data.shape)
 
-        out._backward = _backward
+            out._backward = _backward
+        else:
+            out._op = "relu"
         return out
 
     def __repr__(self):
@@ -239,26 +288,31 @@ class Tensor:
     def __matmul__(self, other):
         
         other = other if isinstance(other, Tensor) else Tensor(other)
+        req = Tensor._grad_enabled and (self.requires_grad or other.requires_grad)
 
-        out = Tensor(self.data @ other.data, requires_grad=self.requires_grad or other.requires_grad)
-        out._prev = {self, other}
-        out._op = "matmul"
+        out = Tensor(self.data @ other.data, requires_grad=req)
+        
+        if req:
+            out._prev = {self, other}
+            out._op = "matmul"
 
-        def _backward():
-            if out.grad is None:
-                return
-            
-            if self.requires_grad:
-                self.__init_grad()
-                grad_self = out.grad @ other.data.T
-                self.grad += _unbroadcast(grad_self, self.data.shape)
+            def _backward():
+                if out.grad is None:
+                    return
+                
+                if self.requires_grad:
+                    self.__init_grad()
+                    grad_self = out.grad @ other.data.T
+                    self.grad += _unbroadcast(grad_self, self.data.shape)
 
-            if other.requires_grad:
-                other.__init_grad()
-                grad_other = self.data.T @ out.grad
-                other.grad += _unbroadcast(grad_other, other.data.shape)
+                if other.requires_grad:
+                    other.__init_grad()
+                    grad_other = self.data.T @ out.grad
+                    other.grad += _unbroadcast(grad_other, other.data.shape)
 
-        out._backward = _backward
+            out._backward = _backward
+        else:
+            out._op = "matmul"
         return out
     
     def sigmoid(self):

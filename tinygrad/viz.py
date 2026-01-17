@@ -1,9 +1,17 @@
-# tinygrad/viz.py
 from collections import defaultdict
 
-# Tune this once you know your actual op names.
-TRIVIAL_OPS = {
-    "broadcast", "unbroadcast", "reshape", "expand_dims", "transpose",
+MATH_CORE_OPS = {
+    "matmul", "relu", "sigmoid",
+    "log", "exp", "abs",
+    "pow", "logsumexp",
+}
+
+TRAINING_GLUE_OPS = {
+    "add", "mul", "neg", "sum", "mean",
+}
+
+MATH_HIDE_OPS = {
+    "add", "sum", "mean", "neg",
 }
 
 def trace(root):
@@ -30,47 +38,39 @@ def _node_id(n):
     return f"node{id(n)}"
 
 def _should_show(n, root, mode="full", hide_const=False):
-    """
-    Decide if a node should be drawn.
-    """
-    op  = getattr(n, "_op", "") or ""
-    req = bool(getattr(n, "requires_grad", False))
+    op   = getattr(n, "_op", "") or ""
+    req  = bool(getattr(n, "requires_grad", False))
     name = getattr(n, "_name", None)
 
     is_root = (n is root)
     is_leaf = (len(getattr(n, "_prev", [])) == 0)
 
-    # optional: hide constant leaves (inputs/targets) to reduce clutter
+    # Hide constant leaves (inputs/targets) if requested
     if hide_const and is_leaf and (not req) and (not is_root) and (name is None):
         return False
+
+    # Root always visible
+    if is_root:
+        return True
+
+    # Parameters always visible if named
+    if name is not None:
+        return True
 
     if mode == "full":
         return True
 
-    if mode == "prune_trivial":
-        # keep root always
-        if is_root:
-            return True
-        return op not in TRIVIAL_OPS
+    if mode == "training":
+        # show all ops that exist (i.e., anything with _op),
+        # plus any non-leaf nodes (sometimes _op might be "")
+        return bool(op) or (not is_leaf)
 
-    if mode == "ops_only":
-        # show ops + root; also show named leaves (params) if you name them
-        if is_root:
-            return True
-        if name is not None:
-            return True
-        return bool(op)
-
-    if mode == "params_only":
-        # show only named tensors (params) + ops that connect them + root
-        # (works best once you name parameters)
-        if is_root:
-            return True
-        if name is not None:
-            return True
-        return bool(op)
+    if mode == "math":
+        # show only "math core" ops, and fold away glue ops
+        return op in MATH_CORE_OPS
 
     raise ValueError(f"Unknown mode: {mode}")
+
 
 def _fold_edges(nodes, edges, visible):
     """
