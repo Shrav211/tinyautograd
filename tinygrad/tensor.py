@@ -52,7 +52,7 @@ class Tensor:
         out._op = "detach" #useful for viz
         return out
 
-    def backward(self):
+    def backward(self, retain_graph=False):
         # Implement the backward pass to compute gradients
         if self.data.shape != () and self.data.size != 1:
             raise ValueError(f"backward() can only be called on a scalar loss, got shape{self.data.shape}")
@@ -73,6 +73,12 @@ class Tensor:
 
         for v in reversed(topo):
             v._backward()
+
+        # add graph freeing, after all grads are computed, free the graph
+            if not retain_graph:
+                v._prev = set()
+                v._backward = lambda: None
+                v._op = ""
 
     def __init_grad(self):
         if self.grad is None:
@@ -317,65 +323,91 @@ class Tensor:
     
     def sigmoid(self):
         out_data = 1 / (1 + np.exp(-self.data))
-        out = Tensor(out_data, requires_grad=self.requires_grad)
-        out._prev = {self}
-        out._op = "sigmoid"
+        req = Tensor._grad_enabled and self.requires_grad
 
-        def _backward():
-            if out.grad is None:
-                return
-            if self.requires_grad:
-                self.__init_grad()
-                grad_self = out.grad * out.data * (1 - out.data)
-                self.grad += _unbroadcast(grad_self, self.data.shape)
+        out = Tensor(out_data, requires_grad=req)
+        
+        if req:
+            out._prev = {self}
+            out._op = "sigmoid"
 
-        out._backward = _backward
+            def _backward():
+                if out.grad is None:
+                    return
+                if self.requires_grad:
+                    self.__init_grad()
+                    grad_self = out.grad * out.data * (1 - out.data)
+                    self.grad += _unbroadcast(grad_self, self.data.shape)
+
+            out._backward = _backward
+        else:
+            out._op = "relu"
         return out
     
     def log(self):
-        out = Tensor(np.log(self.data), requires_grad=self.requires_grad)
-        out._prev = {self}
-        out._op = "log"
-
-        def _backward():
-            if out.grad is None:
-                return
-            if self.requires_grad:
-                self.__init_grad()
-                self.grad += _unbroadcast(out.grad / self.data, self.data.shape)
         
-        out._backward = _backward
+        req = Tensor._grad_enabled and self.requires_grad
+
+        out = Tensor(np.log(self.data), requires_grad=self.requires_grad)
+        
+        if req:
+            out._prev = {self}
+            out._op = "log"
+
+            def _backward():
+                if out.grad is None:
+                    return
+                if self.requires_grad:
+                    self.__init_grad()
+                    self.grad += _unbroadcast(out.grad / self.data, self.data.shape)
+            
+            out._backward = _backward
+        else:
+            out._op = "log"
         return out
     
     def exp(self):
+        
+        req = Tensor._grad_enabled and self.requires_grad
+
         out = Tensor(np.exp(self.data), requires_grad=self.requires_grad)
-        out._prev = {self}
-        out._op = "exp"
+        
+        if req:
+            out._prev = {self}
+            out._op = "exp"
 
-        def _backward():
-            if out.grad is None:
-                return
-            if self.requires_grad:
-                self.__init_grad()
-                self.grad += _unbroadcast(out.grad * out.data, self.data.shape)
+            def _backward():
+                if out.grad is None:
+                    return
+                if self.requires_grad:
+                    self.__init_grad()
+                    self.grad += _unbroadcast(out.grad * out.data, self.data.shape)
 
-        out._backward = _backward
+            out._backward = _backward
+        else:
+            out._op = "exp"
         return out
     
     def abs(self):
+        
+        req = Tensor._grad_enabled and self.requires_grad
         out = Tensor(np.abs(self.data), requires_grad=self.requires_grad)
-        out._prev = {self}
-        out._op = "abs"
+            
+        if req:    
+            out._prev = {self}
+            out._op = "abs"
 
-        def _backward():
-            if out.grad is None:
-                return
-            if self.requires_grad:
-                self.__init_grad()
-                sign = np.sign(self.data)
-                self.grad += _unbroadcast(out.grad * sign, self.data.shape)
+            def _backward():
+                if out.grad is None:
+                    return
+                if self.requires_grad:
+                    self.__init_grad()
+                    sign = np.sign(self.data)
+                    self.grad += _unbroadcast(out.grad * sign, self.data.shape)
 
-        out._backward = _backward
+            out._backward = _backward
+        else:
+            out._op = "abs"
         return out
     
     def max(self, axis=None, keepdims=False):
@@ -400,7 +432,6 @@ class Tensor:
         s = shifted.exp().sum(axis=axis, keepdims=True).log()
         out = s + m
         if not keepdims and axis is not None:
-            # optional squeeze behavior if you implemented it; otherwise keepdims=True everywhere
             pass
         return out
 
