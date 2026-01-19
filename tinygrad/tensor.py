@@ -120,7 +120,10 @@ class Tensor:
 
                 if other.requires_grad:
                     other.__init_grad()
-                    other.grad += _unbroadcast(out.grad, other.data.shape)
+                    # other.grad += _unbroadcast(out.grad, other.data.shape)
+                    grad_contrib = _unbroadcast(out.grad, other.data.shape)
+                    grad_contrib = other._apply_hooks(grad_contrib)
+                    other.grad += grad_contrib
 
             out._backward = _backward
         else:
@@ -154,7 +157,10 @@ class Tensor:
                 if other.requires_grad:
                     other.__init_grad()
                     grad_other = out.grad * self.data
-                    other.grad += _unbroadcast(grad_other, other.data.shape)
+                    # other.grad += _unbroadcast(grad_other, other.data.shape)
+                    grad_contrib = _unbroadcast(grad_other, other.data.shape)
+                    grad_contrib = other._apply_hooks(grad_contrib)
+                    other.grad += grad_contrib
 
             out._backward = _backward
         else:
@@ -348,6 +354,9 @@ class Tensor:
                     other.__init_grad()
                     grad_other = self.data.T @ out.grad
                     other.grad += _unbroadcast(grad_other, other.data.shape)
+                    grad_contrib = _unbroadcast(grad_other, other.data.shape)
+                    grad_contrib = other._apply_hooks(grad_contrib)
+                    other.grad += grad_contrib
 
             out._backward = _backward
         else:
