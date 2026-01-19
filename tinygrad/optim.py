@@ -57,9 +57,12 @@ class AdamW(Optimizer):
         for p in self.params:
             p.grad = None
 
-    def step(self):
+    def step(self, clip_norm=None):
         self.t += 1
         b1, b2 = self.beta1, self.beta2
+
+        if clip_norm is not None:
+            self.clip_grad_norm_(clip_norm)
 
         for p in self.params:
             if p.grad is None:
