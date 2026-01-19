@@ -1,6 +1,28 @@
 import numpy as np
 
-class SGD:
+class Optimizer:
+    def __init__(self, params):
+        self.params = list(params)
+
+    def clip_grad_norm_(self, max_norm):
+        total_sq = 0.0
+        for p in self.params:
+            if p.grad is None:
+                continue
+            g = p.grad
+            total_sq += float(np.sum(g * g))
+        total_norm = float(np.sqrt(total_sq))
+
+        if total_norm > max_norm:
+            scale = max_norm / total_norm
+            for p in self.params:
+                if p.grad is None:
+                    continue
+                p.grad = p.grad * scale
+
+        return total_norm
+
+class SGD(Optimizer):
     def __init__(self, params, lr=1e-2):
         self.params = list(params)
         self.lr = lr
@@ -14,7 +36,7 @@ class SGD:
             if p.requires_grad:
                 p.data -= self.lr * p.grad
 
-class AdamW:
+class AdamW(Optimizer):
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=1e-12):
         self.params = list(params)
         self.lr = lr
@@ -59,4 +81,7 @@ class AdamW:
 
             #decoupled weight decay
             p.data -= self.lr * self.weight_decay * p.data
+
+    
+
             
