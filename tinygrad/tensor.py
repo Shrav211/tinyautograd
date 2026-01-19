@@ -40,6 +40,7 @@ class Tensor:
         self._backward = lambda: None
         self._op = ""
         self._name = None
+        self._hooks = []
 
     @property
     def _track_grad(self):
@@ -75,10 +76,21 @@ class Tensor:
             v._backward()
 
         # add graph freeing, after all grads are computed, free the graph
-            if not retain_graph:
+        if not retain_graph:
+            for v in topo:
                 v._prev = set()
                 v._backward = lambda: None
                 v._op = ""
+
+    def register_hook(self, fn):
+        #fn: callable that takes (grad_np) and return a (grad_np)
+        self._hooks.append(fn)
+        return fn
+    
+    def _apply_hooks(self, grad):
+        for h in self._hooks:
+            grad = h(grad)
+        return grad 
 
     def __init_grad(self):
         if self.grad is None:
@@ -101,7 +113,10 @@ class Tensor:
                 
                 if self.requires_grad:
                     self.__init_grad()
-                    self.grad += _unbroadcast(out.grad, self.data.shape)
+                    #self.grad += _unbroadcast(out.grad, self.data.shape)
+                    grad_contrib = _unbroadcast(out.grad, self.data.shape)
+                    grad_contrib = self._apply_hooks(grad_contrib)
+                    self.grad += grad_contrib
 
                 if other.requires_grad:
                     other.__init_grad()
@@ -131,7 +146,10 @@ class Tensor:
                 if self.requires_grad:
                     self.__init_grad()
                     grad_self = out.grad * other.data
-                    self.grad += _unbroadcast(grad_self, self.data.shape)
+                    # self.grad += _unbroadcast(grad_self, self.data.shape)
+                    grad_contrib = _unbroadcast(grad_self, self.data.shape)
+                    grad_contrib = self._apply_hooks(grad_contrib)
+                    self.grad += grad_contrib
 
                 if other.requires_grad:
                     other.__init_grad()
@@ -158,7 +176,10 @@ class Tensor:
                 
                 if self.requires_grad:
                     self.__init_grad()
-                    self.grad += _unbroadcast(-out.grad, self.data.shape)
+                    # self.grad += _unbroadcast(-out.grad, self.data.shape)
+                    grad_contrib = _unbroadcast(-out.grad, self.data.shape)
+                    grad_contrib = self._apply_hooks(grad_contrib)
+                    self.grad += grad_contrib
 
             out._backward = _backward
         else:
@@ -186,7 +207,10 @@ class Tensor:
                 if self.requires_grad:
                     self.__init_grad()
                     grad_self = out.grad * (p * (self.data ** (p - 1)))
-                    self.grad += _unbroadcast(grad_self, self.data.shape)
+                    # self.grad += _unbroadcast(grad_self, self.data.shape)
+                    grad_contrib = _unbroadcast(grad_self, self.data.shape)
+                    grad_contrib = self._apply_hooks(grad_contrib)
+                    self.grad += grad_contrib
 
             out._backward = _backward
         else:
@@ -225,7 +249,10 @@ class Tensor:
                         grad = np.expand_dims(grad, axis=a)
 
                 # Broadcast once to input shape
-                self.grad += np.broadcast_to(grad, self.data.shape)
+                # self.grad += np.broadcast_to(grad, self.data.shape)
+                grad_contrib = np.broadcast_to(grad, self.data.shape)
+                grad_contrib = self._apply_hooks(grad_contrib)
+                self.grad += grad_contrib
 
             out._backward = _backward
         else:
@@ -281,7 +308,10 @@ class Tensor:
                     self.__init_grad()
                     mask = (self.data > 0).astype(self.data.dtype)
                     grad_self = out.grad * mask
-                    self.grad += _unbroadcast(grad_self, self.data.shape)
+                    # self.grad += _unbroadcast(grad_self, self.data.shape)
+                    grad_contrib = _unbroadcast(grad_self, self.data.shape)
+                    grad_contrib = self._apply_hooks(grad_contrib)
+                    self.grad += grad_contrib
 
             out._backward = _backward
         else:
@@ -309,7 +339,10 @@ class Tensor:
                 if self.requires_grad:
                     self.__init_grad()
                     grad_self = out.grad @ other.data.T
-                    self.grad += _unbroadcast(grad_self, self.data.shape)
+                    # self.grad += _unbroadcast(grad_self, self.data.shape)
+                    grad_contrib = _unbroadcast(grad_self, self.data.shape)
+                    grad_contrib = self._apply_hooks(grad_contrib)
+                    self.grad += grad_contrib
 
                 if other.requires_grad:
                     other.__init_grad()
@@ -337,7 +370,10 @@ class Tensor:
                 if self.requires_grad:
                     self.__init_grad()
                     grad_self = out.grad * out.data * (1 - out.data)
-                    self.grad += _unbroadcast(grad_self, self.data.shape)
+                    # self.grad += _unbroadcast(grad_self, self.data.shape)
+                    grad_contrib = _unbroadcast(grad_self, self.data.shape)
+                    grad_contrib = self._apply_hooks(grad_contrib)
+                    self.grad += grad_contrib
 
             out._backward = _backward
         else:
@@ -359,7 +395,10 @@ class Tensor:
                     return
                 if self.requires_grad:
                     self.__init_grad()
-                    self.grad += _unbroadcast(out.grad / self.data, self.data.shape)
+                    # self.grad += _unbroadcast(out.grad / self.data, self.data.shape)
+                    grad_contrib = _unbroadcast(out.grad / self.data, self.data.shape)
+                    grad_contrib = self._apply_hooks(grad_contrib)
+                    self.grad += grad_contrib
             
             out._backward = _backward
         else:
@@ -381,7 +420,10 @@ class Tensor:
                     return
                 if self.requires_grad:
                     self.__init_grad()
-                    self.grad += _unbroadcast(out.grad * out.data, self.data.shape)
+                    # self.grad += _unbroadcast(out.grad * out.data, self.data.shape)
+                    grad_contrib = _unbroadcast(out.grad * out.data, self.data.shape)
+                    grad_contrib = self._apply_hooks(grad_contrib)
+                    self.grad += grad_contrib
 
             out._backward = _backward
         else:
@@ -403,7 +445,10 @@ class Tensor:
                 if self.requires_grad:
                     self.__init_grad()
                     sign = np.sign(self.data)
-                    self.grad += _unbroadcast(out.grad * sign, self.data.shape)
+                    # self.grad += _unbroadcast(out.grad * sign, self.data.shape)
+                    grad_contrib = _unbroadcast(out.grad * sign, self.data.shape)
+                    grad_contrib = self._apply_hooks(grad_contrib)
+                    self.grad += grad_contrib
 
             out._backward = _backward
         else:
