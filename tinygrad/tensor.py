@@ -49,7 +49,7 @@ def im2col(x, kH, kW, stride=1, padding=0):
         i_end = i + sH * out_h
         for j in range(kW):
             j_end = j + sW * out_w
-            cols[..., i, j] = x_pad[:, :, i:i_end:sH, j:j_end:sW]
+            cols[..., i, j] = x_pad[:, :, i:i_end:sH, j:j_end:sW].transpose(0, 2, 3, 1)
 
     # Flatten to (N * out_h * out_w, C * kH * kW)
     x_col = cols.reshape(N * out_h * out_w, C * kH * kW)
@@ -70,7 +70,7 @@ def col2im(dX_col, x_pad_shape, kH, kW, stride=1, padding=0):
         i_end = i + sH*out_h
         for j in range(kW):
             j_end = j + sW*out_w
-            dx_pad[:, :, i:i_end:sH, j:j_end:sW] += cols[..., i, j]
+            dx_pad[:, :, i:i_end:sH, j:j_end:sW] += cols[..., i, j].transpose(0, 3, 1, 2)
 
     # remove padding
     if pH == 0 and pW == 0:
