@@ -229,7 +229,6 @@ class Module:
                 pass
         return self
 
-
 class Linear(Module):
     #Scalar Linear Layer
     def __init__(self, in_dim, out_dim, init="he"):
@@ -371,3 +370,52 @@ def cross_entropy_logits(logits: Tensor, y: np.ndarray):
     # loss per sample then mean
     loss = (lse - z_y).mean()
     return loss
+
+class Conv2d(Module):
+    """
+    Conv2d layer:
+      input  x: (N, Cin, H, W)
+      weight W: (Cout, Cin, kH, kW)
+      bias   b: (Cout,) or None
+      output y: (N, Cout, out_h, out_w)
+    """
+    def __init__(self, in_channels, out_channels, kernel_size,
+                 stride=1, padding=0, bias=True, init="he"):
+        super().__init__()
+
+        if isinstance(kernel_size, int):
+            kH = kW = kernel_size
+        else:
+            kH, kW = kernel_size
+
+        self.in_channels  = in_channels
+        self.out_channels = out_channels
+        self.kernel_size  = (kH, kW)
+        self.stride       = stride
+        self.padding      = padding
+
+        # fan_in for conv = Cin * kH * kW
+        fan_in = in_channels * kH * kW
+
+        if init == "he":
+            scale = np.sqrt(2.0 / fan_in)
+        elif init == "xavier":
+            # a common conv-xavier: 2/(fan_in + fan_out), fan_out = Cout*kH*kW
+            fan_out = out_channels * kH * kW
+            scale = np.sqrt(2.0 / (fan_in + fan_out))
+        else:
+            raise ValueError(f"Unknown init: {init}")
+
+        W = np.random.randn(out_channels, in_channels, kH, kW).astype(float) * scale
+        self.W = Tensor(W, requires_grad=True)
+        self.W._name = "W"  # optional; you’ll rename with named_parameters later
+
+        if bias:
+            b0 = np.zeros((out_channels,), dtype=float)
+            self.b = Tensor(b0, requires_grad=True)
+            self.b._name = "b"
+        else:
+            self.b = None
+
+    def __call__(self, x: Tensor) -> Tensor:
+        return x.conv2d(self.W, self.b, stride=self.stride, padding=self.padding)
