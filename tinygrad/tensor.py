@@ -27,6 +27,56 @@ def no_grad():
     finally:
         Tensor._grad_enabled = prev
 
+#Conv2d
+def _pair(x):
+    return (x, x) if isinstance(x, int) else x
+
+def im2col(x, kH, kW, stride=1, padding=0):
+    # x: (N, C, H, W)
+    sH, sW = _pair(stride)
+    pH, pW = _pair(padding)
+
+    N, C, H, W = x.shape
+    H_p, W_p = H + 2 * pH, W + 2 * pW
+    x_pad = np.pad(x, ((0, 0), (0, 0), (pH, pH), (pW, pW)), mode="constant")
+
+    out_h = (H_p - kH) // sH + 1
+    out_w = (W_p - kW) // sW + 1
+
+    # building columns: (N, out_h, out_w, C, kH, kW)
+    cols = np.empty((N, out_h, out_w, C, kH, kW), dtype=x.dtype)
+    for i in range(kH):
+        i_end = i + sH * out_h
+        for j in range(kW):
+            j_end = j + sW * out_w
+            cols[..., i, j] = x_pad[:, :, i:i_end:sH, j:j_end:sW]
+
+    # Flatten to (N * out_h * out_w, C * kH * kW)
+    x_col = cols.reshape(N * out_h * out_w, C * kH * kW)
+    return x_col, out_h, out_w, x_pad.shape
+
+def col2im(dX_col, x_pad_shape, kH, kW, stride=1, padding=0):
+    sH, sW = _pair(stride)
+    pH, pW = _pair(padding)
+
+    N, C, H_p, W_p = x_pad_shape
+    out_h = (H_p - kH) // sH + 1
+    out_w = (W_p - kW) // sW + 1
+
+    cols = dX_col.reshape(N, out_h, out_w, C, kH, kW)
+    dx_pad = np.zeros((N, C, H_p, W_p), dtype=dX_col.dtype)
+
+    for i in range(kH):
+        i_end = i + sH*out_h
+        for j in range(kW):
+            j_end = j + sW*out_w
+            dx_pad[:, :, i:i_end:sH, j:j_end:sW] += cols[..., i, j]
+
+    # remove padding
+    if pH == 0 and pW == 0:
+        return dx_pad
+    return dx_pad[:, :, pH:-pH, pW:-pW]
+
 #tensor should contain value, gradient, who created it and the how to push the gradients backwards
 class Tensor:
     #basically a tensor should represent a value or node in a graph
@@ -488,6 +538,78 @@ class Tensor:
         if not keepdims and axis is not None:
             pass
         return out
+    
+    def conv2d(self, weight, bias=None, stride=1, padding=0):
+        """
+        self:   x (N, C, H, W)
+        weight: w (F, C, kH, kW)
+        bias:   b (F,) or None
+        returns out: (N, F, out_h, out_w)
+        """
+        x = self
+        w = weight if isinstance(weight, Tensor) else Tensor(weight, requires_grad=False)
+        b = None if bias is None else (bias if isinstance(bias, Tensor) else Tensor(bias, requires_grad=False))
+
+        # respect no_grad
+        req = getattr(Tensor, "_grad_enabled", True) and (x.requires_grad or w.requires_grad or (b is not None and b.requires_grad))
+
+        X = x.data
+        W = w.data
+        if X.ndim != 4 or W.ndim != 4:
+            raise ValueError(f"conv2d expects x (N,C,H,W) and w (F,C,kH,kW); got {X.shape}, {W.shape}")
+
+        F, Cw, kH, kW = W.shape
+        N, Cx, H, W_in = X.shape
+        if Cw != Cx:
+            raise ValueError(f"conv2d channel mismatch: x has C={Cx}, w has C={Cw}")
+
+        X_col, out_h, out_w, x_pad_shape = im2col(X, kH, kW, stride=stride, padding=padding)  # (N*out_h*out_w, C*kH*kW)
+        W_col = W.reshape(F, -1)  # (F, C*kH*kW)
+
+        # Y_col: (N*out_h*out_w, F)
+        Y_col = X_col @ W_col.T
+        if b is not None:
+            Y_col = Y_col + b.data.reshape(1, F)
+
+        out_data = Y_col.reshape(N, out_h, out_w, F).transpose(0, 3, 1, 2)  # (N,F,out_h,out_w)
+        out = Tensor(out_data, requires_grad=req)
+        out._op = "conv2d"
+
+        if not req:
+            return out
+
+        out._prev = {x, w} if b is None else {x, w, b}
+
+        def _backward():
+            if out.grad is None:
+                return
+
+            dY = out.grad  # (N,F,out_h,out_w)
+            dY_col = dY.transpose(0, 2, 3, 1).reshape(N*out_h*out_w, F)  # (N*out_h*out_w, F)
+
+            # grads w.r.t weight
+            if w.requires_grad:
+                w._Tensor__init_grad() if hasattr(w, "_Tensor__init_grad") else w.__init_grad()
+                dW_col = dY_col.T @ X_col  # (F, C*kH*kW)
+                w.grad += dW_col.reshape(w.data.shape)
+
+            # grads w.r.t bias
+            if b is not None and b.requires_grad:
+                b._Tensor__init_grad() if hasattr(b, "_Tensor__init_grad") else b.__init_grad()
+                db = dY_col.sum(axis=0)  # (F,)
+                b.grad += db.reshape(b.data.shape)
+
+            # grads w.r.t input
+            if x.requires_grad:
+                x._Tensor__init_grad() if hasattr(x, "_Tensor__init_grad") else x.__init_grad()
+                dX_col = dY_col @ W_col  # (N*out_h*out_w, C*kH*kW)
+                dX = col2im(dX_col, x_pad_shape, kH, kW, stride=stride, padding=padding)  # (N,C,H,W)
+                x.grad += dX
+
+        out._backward = _backward
+        return out
+
+
 
 
 
