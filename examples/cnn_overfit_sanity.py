@@ -26,9 +26,9 @@ class TinyCNN(Module):
         h = self.c2(h).relu()
         # flatten (N, 8, 4, 4) -> (N, 128)
         N = h.data.shape[0]
-        h = Tensor(h.data.reshape(N, -1), requires_grad=h.requires_grad)
-        h._prev = {h}  # optional; if you want flatten to be tracked, implement a proper reshape op
-        # BUT better: implement Tensor.reshape as a real op later.
+        # h = Tensor(h.data.reshape(N, -1), requires_grad=h.requires_grad)
+        # h._prev = {h}  
+        h = h.reshape(N, -1) # reshape as a tensor op
         return self.fc(h)
 
 def make_tiny_images(seed=0):

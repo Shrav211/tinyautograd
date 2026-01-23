@@ -539,6 +539,71 @@ class Tensor:
             pass
         return out
     
+    def reshape(self, *shape):
+        # allow reshape((a,b)) or reshape(a,b)
+        if len(shape) == 1 and isinstance(shape[0], (tuple, list)):
+            shape = tuple(shape[0])
+        else:
+            shape = tuple(shape)
+
+        req = getattr(Tensor, "_grad_enabled", True) and self.requires_grad
+        out = Tensor(self.data.reshape(shape), requires_grad=req)
+        out._op = "reshape"
+
+        if not req:
+            return out
+
+        out._prev = {self}
+
+        def _backward():
+            if out.grad is None:
+                return
+            if self.requires_grad:
+                self.__init_grad()
+                self.grad += out.grad.reshape(self.data.shape)
+
+        out._backward = _backward
+        return out
+    
+    def transpose(self, *axes):
+        """
+        transpose() with either:
+        - no args -> reverse axes
+        - a tuple/list -> that permutation
+        - separate ints -> permutation
+        """
+        if len(axes) == 0:
+            perm = tuple(reversed(range(self.data.ndim)))
+        elif len(axes) == 1 and isinstance(axes[0], (tuple, list)):
+            perm = tuple(axes[0])
+        else:
+            perm = tuple(axes)
+
+        req = getattr(Tensor, "_grad_enabled", True) and self.requires_grad
+        out = Tensor(self.data.transpose(perm), requires_grad=req)
+        out._op = "transpose"
+
+        if not req:
+            return out
+
+        out._prev = {self}
+
+        # inverse permutation: inv[perm[i]] = i
+        inv = [0] * len(perm)
+        for i, p in enumerate(perm):
+            inv[p] = i
+        inv = tuple(inv)
+
+        def _backward():
+            if out.grad is None:
+                return
+            if self.requires_grad:
+                self.__init_grad()
+                self.grad += out.grad.transpose(inv)
+
+        out._backward = _backward
+        return out
+
     def conv2d(self, weight, bias=None, stride=1, padding=0):
         """
         self:   x (N, C, H, W)
