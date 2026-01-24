@@ -674,6 +674,37 @@ class Tensor:
         out._backward = _backward
         return out
 
+    def global_avg_pool2d(self, keepdims=False):
+        x = self
+        if x.data.ndim != 4:
+            raise ValueError("global_avg_pool2d expects (N,C,H,W)")
+
+        N, C, H, W = x.data.shape
+        out_data = x.data.mean(axis=(2,3), keepdims=keepdims)
+
+        req = getattr(Tensor, "_grad_enabled", True) and x.requires_grad
+        out = Tensor(out_data, requires_grad=req)
+        out._op = "gap2d"
+
+        if not req:
+            return out
+
+        out._prev = {x}
+
+        def _backward():
+            if out.grad is None:
+                return
+            if x.requires_grad:
+                x.__init_grad()
+                g = out.grad
+                if not keepdims:
+                    # (N,C) -> (N,C,1,1)
+                    g = g.reshape(N, C, 1, 1)
+                x.grad += np.ones_like(x.data) * (g / (H * W))
+
+        out._backward = _backward
+        return out
+
 
 
 
