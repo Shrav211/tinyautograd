@@ -821,6 +821,16 @@ class Tensor:
 
         out._backward = _backward
         return out
+    
+    def flatten(self, start_dim=1):
+        x = self
+        shape = x.data.shape
+        if start_dim < 0:
+            start_dim += len(shape)
+
+        new_shape = shape[:start_dim] + (int(np.prod(shape[start_dim:])),)
+        return x.reshape(new_shape)
+
 
 
 

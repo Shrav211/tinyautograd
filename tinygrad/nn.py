@@ -429,3 +429,43 @@ class MaxPool2d(Module):
 
     def __call__(self, x: Tensor) -> Tensor:
         return x.maxpool2d(kernel_size=self.kernel_size, stride=self.stride, padding=self.padding)
+
+class Conv2d(Module):
+    def __init__(self, in_ch, out_ch, kernel_size, stride=1, padding=0, bias=True, init="he"):
+        super().__init__()
+        if isinstance(kernel_size, int):
+            kH = kW = kernel_size
+        else:
+            kH, kW = kernel_size
+
+        self.stride = stride
+        self.padding = padding
+
+        # He init for ReLU conv: Var(W)=2/fan_in where fan_in = in_ch*kH*kW
+        fan_in = in_ch * kH * kW
+        if init == "he":
+            scale = np.sqrt(2.0 / fan_in)
+        elif init == "xavier":
+            fan_out = out_ch * kH * kW
+            scale = np.sqrt(2.0 / (fan_in + fan_out))
+        else:
+            raise ValueError(f"Unknown init: {init}")
+
+        W = np.random.randn(out_ch, in_ch, kH, kW) * scale
+        self.W = Tensor(W, requires_grad=True)
+
+        if bias:
+            self.b = Tensor(np.zeros((out_ch,), dtype=float), requires_grad=True)
+        else:
+            self.b = None
+
+    def __call__(self, x: Tensor) -> Tensor:
+        return x.conv2d(self.W, self.b, stride=self.stride, padding=self.padding)
+
+class Flatten(Module):
+    def __init__(self, start_dim=1):
+        super().__init__()
+        self.start_dim = start_dim
+
+    def __call__(self, x: Tensor) -> Tensor:
+        return x.flatten(start_dim=self.start_dim)
