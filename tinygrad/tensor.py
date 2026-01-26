@@ -518,6 +518,52 @@ class Tensor:
         # used for numerical stability; treat as constant (no grad)
         return Tensor(np.max(self.data, axis=axis, keepdims=keepdims), requires_grad=False)
     
+    def max(self, axis=None, keepdims=False):
+        out_data = np.max(self.data, axis=axis, keepdims=keepdims)
+        out = Tensor(out_data, requires_grad=self.requires_grad)
+        out._prev = {self}
+        out._op = "max"
+
+        def _backward():
+            if out.grad is None or (not self.requires_grad):
+                return
+            
+            self.__init_grad()
+
+            #upstream grad
+            grad = out.grad
+
+            #if reducing over all elements
+            if axis is None:
+                m = out.data
+                mask = (self.data == m)
+                cnt = mask.sum()
+                #split gradient if tie
+                self.grad += mask * (grad / cnt)
+                return
+            
+            #normalize the axis to tuple of positive axes
+            axes = (axis, ) if isinstance(axis, int) else tuple(axis)
+            axes = tuple(a if a >= 0 else a + self.data.ndim for a in axes)
+
+            # expand grad / out.data to keepdims=True shape for broadcasting
+            if not keepdims:
+                for a in sorted(axes):
+                    grad = np.expand_dims(grad, axis=a)
+                    out_data_exp = np.expand_dims(out.data, axis=a)
+            else:
+                out_data_exp = out.data
+
+            # mask of max locations
+            mask = (self.data == out_data_exp)
+
+            # count the ties along the reduction axes (keepdims=True so broadcast works)
+            cnt = mask.sum(axis=axes, keepdims=True)
+            self.grad += mask * (grad / cnt)
+
+        out._backward = _backward
+        return out
+
     def mean(self, axis=None, keepdims=False):
         if axis is None:
             denom = self.data.size
@@ -600,6 +646,77 @@ class Tensor:
             if self.requires_grad:
                 self.__init_grad()
                 self.grad += out.grad.transpose(inv)
+
+        out._backward = _backward
+        return out
+
+    def maxpool2d(self, kernel_size=2, stride=None, padding=0):
+        """
+        self: x (N, C, H, W)
+        returns: (N, C, out_h, out_w)
+        """
+        x = self
+        X = x.data
+        if X.ndim != 4:
+            raise ValueError(f"maxpool2d expects x (N,C,H,W), got {X.shape}")
+
+        if isinstance(kernel_size, int):
+            kH = kW = kernel_size
+        else:
+            kH, kW = kernel_size
+
+        if stride is None:
+            stride = kernel_size
+        if isinstance(stride, int):
+            sH = sW = stride
+        else:
+            sH, sW = stride
+
+        # respect no_grad
+        req = getattr(Tensor, "_grad_enabled", True) and x.requires_grad
+
+        # im2col gives: (N*out_h*out_w, C*kH*kW)
+        X_col, out_h, out_w, x_pad_shape = im2col(X, kH, kW, stride=(sH, sW), padding=padding)
+
+        N, C, H, W = X.shape
+        # reshape to (N*out_h*out_w, C, kH*kW)
+        X_col_3d = X_col.reshape(N*out_h*out_w, C, kH*kW)
+
+        # max over window axis
+        out_col = X_col_3d.max(axis=2)             # (N*out_h*out_w, C)
+        argmax = X_col_3d.argmax(axis=2)           # (N*out_h*out_w, C)
+
+        out_data = out_col.reshape(N, out_h, out_w, C).transpose(0, 3, 1, 2)  # (N,C,out_h,out_w)
+        out = Tensor(out_data, requires_grad=req)
+        out._op = "maxpool2d"
+
+        if not req:
+            return out
+
+        out._prev = {x}
+
+        def _backward():
+            if out.grad is None:
+                return
+            if not x.requires_grad:
+                return
+
+            x.__init_grad()
+
+            dY = out.grad  # (N,C,out_h,out_w)
+            dY_col = dY.transpose(0, 2, 3, 1).reshape(N*out_h*out_w, C)  # (N*out_h*out_w, C)
+
+            # scatter into (N*out_h*out_w, C, kH*kW)
+            dX_col_3d = np.zeros((N*out_h*out_w, C, kH*kW), dtype=X.dtype)
+
+            rows = np.arange(N*out_h*out_w)[:, None]       # (R,1)
+            chs  = np.arange(C)[None, :]                   # (1,C)
+            dX_col_3d[rows, chs, argmax] = dY_col
+
+            dX_col = dX_col_3d.reshape(N*out_h*out_w, C*kH*kW)
+
+            dX = col2im(dX_col, x_pad_shape, kH, kW, stride=(sH, sW), padding=padding)
+            x.grad += dX
 
         out._backward = _backward
         return out

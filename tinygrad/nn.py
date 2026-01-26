@@ -419,3 +419,13 @@ class Conv2d(Module):
 
     def __call__(self, x: Tensor) -> Tensor:
         return x.conv2d(self.W, self.b, stride=self.stride, padding=self.padding)
+
+class MaxPool2d(Module):
+    def __init__(self, kernel_size=2, stride=None, padding=0):
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+
+    def __call__(self, x: Tensor) -> Tensor:
+        return x.maxpool2d(kernel_size=self.kernel_size, stride=self.stride, padding=self.padding)
