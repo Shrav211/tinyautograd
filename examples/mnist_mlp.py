@@ -1,11 +1,40 @@
 # examples/mnist_mlp.py
 import numpy as np
 
-from tinygrad.tensor import Tensor
+from tinygrad.tensor import Tensor, no_grad
 from tinygrad.optim import AdamW
 from tinygrad.data import DataLoader
 from tinygrad.datasets import MNIST
 from tinygrad.nn import Module, Linear, cross_entropy_logits
+
+def accuracy_from_logits(logits_np, y_np):
+    pred = np.argmax(logits_np, axis=1)
+    return float(np.mean(pred == y_np))
+
+def evaluate(model, loader, loss_fn=None):
+    model.eval()
+    total_correct = 0
+    total = 0
+    total_loss = 0.0
+
+    # use your no_grad context manager
+    with no_grad():
+        for xb, yb in loader:
+            x = Tensor(xb, requires_grad=False)
+            logits = model(x)                 # Tensor (B, C)
+            logits_np = logits.data           # numpy
+
+            total_correct += int((np.argmax(logits_np, axis=1) == yb).sum())
+            total += yb.shape[0]
+
+            if loss_fn is not None:
+                loss = loss_fn(logits, yb)    # returns scalar Tensor
+                total_loss += float(loss.data) * yb.shape[0]
+
+    model.train()
+    acc = total_correct / total
+    avg_loss = (total_loss / total) if loss_fn is not None else None
+    return acc, avg_loss
 
 class MNIST_MLP(Module):
     def __init__(self, hidden=128):
@@ -18,11 +47,6 @@ class MNIST_MLP(Module):
         h = self.l1(x).relu()
         logits = self.l2(h)  # (N, 10)
         return logits
-
-def accuracy_from_logits(logits_np, y_np):
-    # logits_np: (N, C), y_np: (N,)
-    pred = np.argmax(logits_np, axis=1)
-    return float(np.mean(pred == y_np))
 
 def main():
     # data
@@ -66,9 +90,13 @@ def main():
                 out = model(x2).data
                 all_acc.append(accuracy_from_logits(out, y2))
             te_acc = float(np.mean(all_acc))
+            
             model.train()
 
             print(f"step {step:4d}  loss {float(loss.data):.4f}  tr_acc {tr_acc:.3f}  te_acc {te_acc:.3f}")
+
+            te_acc, te_loss = evaluate(model, test_loader, loss_fn=cross_entropy_logits)
+            print(f"step {step:4d} loss {float(loss.data):.4f} tr_acc {tr_acc:.3f} te_acc {te_acc:.3f}")
 
     # final eval
     model.eval()

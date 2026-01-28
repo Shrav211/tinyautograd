@@ -27,9 +27,6 @@ wheels/
 .installed.cfg
 *.egg
 
-# Jupyter Notebook
-.ipynb_checkpoints
-
 # Environment
 venv/
 env/
@@ -47,7 +44,7 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Model checkpoints (optional - you might want to track some)
+# Model checkpoints
 *.pt
 *.pth
 *.ckpt
