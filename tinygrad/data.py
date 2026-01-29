@@ -16,7 +16,22 @@ def default_collate(batch):
         return np.stack(xs, axis=0), np.stack(ys, axis=0)
     else:
         return np.stack(batch, axis=0)
+
+def mnist_cnn_collate(batch):
+    """Collate function that adds channel dimension for CNNs."""
+    xs = [b[0] for b in batch]
+    ys = [b[1] for b in batch]
     
+    X = np.stack(xs, axis=0)  # (N, 28, 28)
+    
+    # Add channel dimension
+    if X.ndim == 3:  # (N, H, W)
+        X = X[:, None, :, :]  # (N, 1, H, W)
+    
+    Y = np.array(ys)
+    
+    return X, Y
+
 class DataLoader:
     def __init__(self, dataset, batch_size=32, shuffle=True, drop_last=False, collate_fn=default_collate, seed=0):
         self.dataset = dataset

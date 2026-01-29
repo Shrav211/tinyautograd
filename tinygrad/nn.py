@@ -347,6 +347,40 @@ class BatchNorm1d(Module):
 
         return xhat * self.gamma + self.beta
 
+class BatchNorm2d(Module):
+    def __init__(self, num_features, eps=1e-5, momentum=0.1):
+        super().__init__()
+        self.eps = eps
+        self.momentum = momentum
+        
+        # One gamma/beta per channel
+        self.gamma = Tensor(np.ones((1, num_features, 1, 1)), requires_grad=True)
+        self.beta = Tensor(np.zeros((1, num_features, 1, 1)), requires_grad=True)
+        
+        # Running stats per channel
+        self.running_mean = np.zeros((1, num_features, 1, 1), dtype=np.float32)
+        self.running_var  = np.ones((1, num_features, 1, 1), dtype=np.float32)
+    
+    def __call__(self, x: Tensor) -> Tensor:
+        # x: (N, C, H, W)
+        
+        if self.training:
+            # Compute stats over (N, H, W), keep C dimension
+            mu = x.mean(axis=(0, 2, 3), keepdims=True)  # (1, C, 1, 1)
+            var = ((x - mu) ** 2).mean(axis=(0, 2, 3), keepdims=True)
+            
+            # Update running stats
+            self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mu.data
+            self.running_var = (1 - self.momentum) * self.running_var + self.momentum * var.data
+            
+            xhat = (x - mu) * ((var + self.eps) ** -0.5)
+        else:
+            mu = Tensor(self.running_mean, requires_grad=False)
+            var = Tensor(self.running_var, requires_grad=False)
+            xhat = (x - mu) * ((var + self.eps) ** -0.5)
+        
+        return xhat * self.gamma + self.beta
+
 def cross_entropy_logits(logits: Tensor, y: np.ndarray):
     """
     logits: Tensor (N, C)
@@ -368,7 +402,7 @@ def cross_entropy_logits(logits: Tensor, y: np.ndarray):
     z_y = (logits * Y).sum(axis=1, keepdims=True)
 
     # loss per sample then mean
-    loss = (lse - z_y).mean()
+    loss = (lse - z_y).mean()  # Changed this line!
     return loss
 
 class Conv2d(Module):
@@ -421,14 +455,14 @@ class Conv2d(Module):
         return x.conv2d(self.W, self.b, stride=self.stride, padding=self.padding)
 
 class MaxPool2d(Module):
-    def __init__(self, kernel_size=2, stride=None, padding=0):
+    def __init__(self, kernel_size=2, stride=None):
         super().__init__()
         self.kernel_size = kernel_size
         self.stride = stride
-        self.padding = padding
+        # self.padding = padding
 
     def __call__(self, x: Tensor) -> Tensor:
-        return x.maxpool2d(kernel_size=self.kernel_size, stride=self.stride, padding=self.padding)
+        return x.maxpool2d(kernel_size=self.kernel_size, stride=self.stride)
 
 class Conv2d(Module):
     def __init__(self, in_ch, out_ch, kernel_size, stride=1, padding=0, bias=True, init="he"):
@@ -469,3 +503,64 @@ class Flatten(Module):
 
     def __call__(self, x: Tensor) -> Tensor:
         return x.flatten(start_dim=self.start_dim)
+    
+class GlobalAvgPool2d(Module):
+    def __init__(self):
+        super().__init__()
+
+    def __call__(self, x: Tensor) -> Tensor:
+        # x: (N,C,H,W) -> (N,C)
+        return x.mean(axis=(2, 3), keepdims=False)
+
+# class MNIST_CNN(Module):
+#     def __init__(self):
+#         super().__init__()
+#         self.c1 = Conv2d(1, 16, kernel_size=3, stride=1, padding=1)
+#         self.bn1 = BatchNorm2d(16)
+#         self.pool = MaxPool2d(2, 2)
+
+#         self.c2 = Conv2d(16, 32, kernel_size=3, stride=1, padding=1)
+#         self.bn2 = BatchNorm2d(32)
+
+#         self.gap = GlobalAvgPool2d()
+#         self.fc = Linear(32, 10, init="xavier")  # logits
+
+#     def __call__(self, x: Tensor) -> Tensor:
+#         x = self.c1(x)
+#         x = self.bn1(x)
+#         x = x.relu()
+#         x = self.pool(x)
+
+#         x = self.c2(x)
+#         x = self.bn2(x)
+#         x = x.relu()
+
+#         x = self.gap(x)          # (N,32)
+#         x = self.fc(x)           # (N,10)
+#         return x
+
+class MNIST_CNN(Module):
+    def __init__(self):
+        super().__init__()
+        self.c1 = Conv2d(1, 16, kernel_size=3, stride=1, padding=1)  # 1 input channel!
+        self.bn1 = BatchNorm2d(16)
+        self.pool = MaxPool2d(2, 2)
+        self.c2 = Conv2d(16, 32, kernel_size=3, stride=1, padding=1)
+        self.bn2 = BatchNorm2d(32)
+        self.gap = GlobalAvgPool2d()
+        self.fc = Linear(32, 10, init="xavier")
+    
+    def __call__(self, x: Tensor) -> Tensor:
+        x = self.c1(x)
+        x = self.bn1(x)
+        x = x.relu()
+        x = self.pool(x)
+        
+        x = self.c2(x)
+        x = self.bn2(x)
+        x = x.relu()
+        
+        x = self.gap(x)
+        x = self.fc(x)
+        
+        return x
