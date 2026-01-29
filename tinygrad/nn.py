@@ -542,25 +542,24 @@ class GlobalAvgPool2d(Module):
 class MNIST_CNN(Module):
     def __init__(self):
         super().__init__()
-        self.c1 = Conv2d(1, 16, kernel_size=3, stride=1, padding=1)  # 1 input channel!
+        self.c1  = Conv2d(1, 16, kernel_size=3, stride=1, padding=1)
         self.bn1 = BatchNorm2d(16)
         self.pool = MaxPool2d(2, 2)
-        self.c2 = Conv2d(16, 32, kernel_size=3, stride=1, padding=1)
+
+        self.c2  = Conv2d(16, 32, kernel_size=3, stride=1, padding=1)
         self.bn2 = BatchNorm2d(32)
-        self.gap = GlobalAvgPool2d()
-        self.fc = Linear(32, 10, init="xavier")
-    
-    def __call__(self, x: Tensor) -> Tensor:
-        x = self.c1(x)
-        x = self.bn1(x)
-        x = x.relu()
-        x = self.pool(x)
-        
-        x = self.c2(x)
-        x = self.bn2(x)
-        x = x.relu()
-        
-        x = self.gap(x)
-        x = self.fc(x)
-        
+
+        # add a second pool to reduce to 7x7
+        self.pool2 = MaxPool2d(2, 2)
+
+        self.fc1 = Linear(32*7*7, 128, init="he")
+        self.fc2 = Linear(128, 10, init="xavier")
+
+    def __call__(self, x):
+        x = self.pool(self.bn1(self.c1(x)).relu())        # (N,16,14,14)
+        x = self.pool2(self.bn2(self.c2(x)).relu())       # (N,32,7,7)
+
+        x = x.reshape((x.data.shape[0], -1))              # flatten
+        x = self.fc1(x).relu()
+        x = self.fc2(x)
         return x

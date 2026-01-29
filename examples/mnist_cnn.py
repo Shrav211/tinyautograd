@@ -56,10 +56,10 @@ def main():
     
     # Model and optimizer
     model = MNIST_CNN()
-    opt = AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    opt = AdamW(model.parameters(), lr=2e-3, weight_decay=0)
     
     # Training
-    epochs = 3
+    epochs = 10
     step = 0
     
     for epoch in range(epochs):
@@ -77,7 +77,7 @@ def main():
             opt.step()
             
             # Periodic evaluation
-            if step % 100 == 0:
+            if step % 500 == 0:
                 tr_acc = accuracy_from_logits(logits.data, yb)
                 te_loss, te_acc = evaluate(model, test_loader)
                 print(f"Step {step:4d}  loss {float(loss.data):.4f}  "
