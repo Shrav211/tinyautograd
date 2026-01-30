@@ -1,5 +1,6 @@
 import numpy as np
 from contextlib import contextmanager
+from tinygrad.device import get_xp_from_array, get_xp, to_numpy, cp
 
 def _unbroadcast(grad, shape):
     """
@@ -17,6 +18,14 @@ def _unbroadcast(grad, shape):
             grad = grad.sum(axis=i, keepdims=True)
 
     return grad
+
+def _assert_same_backend(a, b):
+    # a,b are Tensors
+    if type(a.data) is not type(b.data):
+        raise ValueError(
+            "Tensors are on different backends/devices. "
+            "Move them to the same device with .to('cpu') / .to('cuda')."
+        )
 
 @contextmanager
 def no_grad():
@@ -83,7 +92,24 @@ class Tensor:
     _grad_enabled = True
 
     def __init__(self, data, requires_grad=False):
-        self.data = np.array(data) if not isinstance(data, np.ndarray) else data
+        # Handle different input types
+        if isinstance(data, np.ndarray):
+            # Already a numpy array
+            arr = data
+        elif cp is not None and isinstance(data, cp.ndarray):
+            # Already a cupy array
+            arr = data
+        else:
+            # Scalar or list - need to convert
+            # Use device to decide which library
+            if device is None:
+                # Default to CPU
+                xp = np
+            else:
+                xp = get_xp(device)
+            arr = xp.array(data)
+        
+        self.data = arr
         self.grad = None
         self.requires_grad = requires_grad
         self._prev = set()
@@ -93,10 +119,20 @@ class Tensor:
         self._hooks = []
 
     @property
-    def _track_grad(self):
-        # i want to track this only if this tensor wants grad AND grad tracking is enabled globally
-        return self.requires_grad and Tensor._grad_enabled
+    def xp(self):
+        return get_xp_from_array(self.data)
 
+    @property
+    def _track_grad(self):
+        return self.requires_grad and Tensor._grad_enabled
+    
+    @property
+    def device(self):
+        """Return 'cpu' or 'cuda' based on array type"""
+        if cp is not None and isinstance(self.data, cp.ndarray):
+            return 'cuda'
+        return 'cpu'
+    
     def detach(self):
         # Will return a new tensor that shares the same data, but no autograd history
         out = Tensor(self.data, requires_grad=False)
@@ -108,7 +144,7 @@ class Tensor:
         if self.data.shape != () and self.data.size != 1:
             raise ValueError(f"backward() can only be called on a scalar loss, got shape{self.data.shape}")
         
-        self.grad = np.ones_like(self.data)
+        self.grad = self.xp.ones_like(self.data)
         
         topo = []
         visited = set()
@@ -144,11 +180,15 @@ class Tensor:
 
     def __init_grad(self):
         if self.grad is None:
-            self.grad = np.zeros_like(self.data)
+            self.grad = self.xp.zeros_like(self.data)
 
     def __add__(self, other):
 
-        other = other if isinstance(other, Tensor) else Tensor(other)
+        other = other if isinstance(other, Tensor) else Tensor(self.xp.array(other), requires_grad=False)
+
+        _assert_same_backend(self, other)
+
+        xp = self.xp
 
         req = Tensor._grad_enabled and (self.requires_grad or other.requires_grad)
         out = Tensor(self.data + other.data, requires_grad=req)
@@ -183,7 +223,9 @@ class Tensor:
     def __mul__(self, other):
 
         if not isinstance(other, Tensor):
-            other = Tensor(other, requires_grad=False)
+            other = Tensor(self.xp.array(other), requires_grad=False)
+
+        _assert_same_backend(self, other)
 
         req = Tensor._grad_enabled and (self.requires_grad or other.requires_grad)
         out = Tensor(self.data * other.data, requires_grad=req)
@@ -243,7 +285,7 @@ class Tensor:
         return out
 
     def __sub__(self, other):
-        
+        _assert_same_backend(self, other)
         other = other if isinstance(other, Tensor) else Tensor(other)
         return self + (-other)
 
@@ -275,6 +317,8 @@ class Tensor:
     
     def sum(self, axis=None, keepdims=False):
         
+        xp = self.xp
+
         req = Tensor._grad_enabled and (self.requires_grad)
         out = Tensor(self.data.sum(axis=axis, keepdims=keepdims), requires_grad=req)
         if req:
@@ -292,7 +336,7 @@ class Tensor:
 
                 # If summed over all elements, grad is scalar-like -> broadcast to input
                 if axis is None:
-                    self.grad += np.ones_like(self.data) * grad
+                    self.grad += self.xp.ones_like(self.data) * grad
                     return
 
                 # Normalize axis to tuple
@@ -302,11 +346,11 @@ class Tensor:
                 # If keepdims=False, reinsert reduced dims so broadcast works
                 if not keepdims:
                     for a in sorted(axes):
-                        grad = np.expand_dims(grad, axis=a)
+                        grad = self.xp.expand_dims(grad, axis=a)
 
                 # Broadcast once to input shape
                 # self.grad += np.broadcast_to(grad, self.data.shape)
-                grad_contrib = np.broadcast_to(grad, self.data.shape)
+                grad_contrib = self.xp.broadcast_to(grad, self.data.shape)
                 grad_contrib = self._apply_hooks(grad_contrib)
                 self.grad += grad_contrib
 
@@ -327,11 +371,13 @@ class Tensor:
         return self.sum(axis=axis, keepdims=keepdims) * (1.0 / denom)
 
     def __truediv__(self, other):
+        _assert_same_backend(self, other)
         if not isinstance(other, Tensor):
             other = Tensor(other, requires_grad=False)
         return self * (other ** -1)
 
     def __rtruediv__(self, other):
+        _assert_same_backend(self, other)
         if not isinstance(other, Tensor):
             other = Tensor(other, requires_grad=False)
         return other * (self ** -1)
@@ -343,7 +389,7 @@ class Tensor:
     __rmul__ = __mul__
 
     def __rsub__(self, other):
-        
+        _assert_same_backend(self, other)
         other = other if isinstance(other, Tensor) else Tensor(other)
 
         return other - self
@@ -378,7 +424,7 @@ class Tensor:
         return f"Tensor(data={self.data}, grad={self.grad}, requires_grad={self.requires_grad})"
 
     def __matmul__(self, other):
-        
+        _assert_same_backend(self, other)
         other = other if isinstance(other, Tensor) else Tensor(other)
         req = Tensor._grad_enabled and (self.requires_grad or other.requires_grad)
 
@@ -440,10 +486,10 @@ class Tensor:
         return out
     
     def log(self):
-        
+        xp = self.xp
         req = Tensor._grad_enabled and self.requires_grad
 
-        out = Tensor(np.log(self.data), requires_grad=self.requires_grad)
+        out = Tensor(xp.log(self.data), requires_grad=self.requires_grad)
         
         if req:
             out._prev = {self}
@@ -490,9 +536,9 @@ class Tensor:
         return out
     
     def abs(self):
-        
+        xp = self.xp
         req = Tensor._grad_enabled and self.requires_grad
-        out = Tensor(np.abs(self.data), requires_grad=self.requires_grad)
+        out = Tensor(xp.abs(self.data), requires_grad=self.requires_grad)
             
         if req:    
             out._prev = {self}
@@ -503,7 +549,7 @@ class Tensor:
                     return
                 if self.requires_grad:
                     self.__init_grad()
-                    sign = np.sign(self.data)
+                    sign = xp.sign(self.data)
                     # self.grad += _unbroadcast(out.grad * sign, self.data.shape)
                     grad_contrib = _unbroadcast(out.grad * sign, self.data.shape)
                     grad_contrib = self._apply_hooks(grad_contrib)
@@ -519,7 +565,9 @@ class Tensor:
         return Tensor(np.max(self.data, axis=axis, keepdims=keepdims), requires_grad=False)
     
     def max(self, axis=None, keepdims=False):
-        out_data = np.max(self.data, axis=axis, keepdims=keepdims)
+        xp = self.xp
+        
+        out_data = xp.max(self.data, axis=axis, keepdims=keepdims)
         out = Tensor(out_data, requires_grad=self.requires_grad)
         out._prev = {self}
         out._op = "max"
@@ -549,8 +597,8 @@ class Tensor:
             # expand grad / out.data to keepdims=True shape for broadcasting
             if not keepdims:
                 for a in sorted(axes):
-                    grad = np.expand_dims(grad, axis=a)
-                    out_data_exp = np.expand_dims(out.data, axis=a)
+                    grad = xp.expand_dims(grad, axis=a)
+                    out_data_exp = xp.expand_dims(out.data, axis=a)
             else:
                 out_data_exp = out.data
 
@@ -732,6 +780,10 @@ class Tensor:
         w = weight if isinstance(weight, Tensor) else Tensor(weight, requires_grad=False)
         b = None if bias is None else (bias if isinstance(bias, Tensor) else Tensor(bias, requires_grad=False))
 
+        _assert_same_backend(x, w)
+        if b is not None:
+            _assert_same_backend(x, b)
+
         # respect no_grad
         req = getattr(Tensor, "_grad_enabled", True) and (x.requires_grad or w.requires_grad or (b is not None and b.requires_grad))
 
@@ -792,6 +844,8 @@ class Tensor:
         return out
 
     def global_avg_pool2d(self, keepdims=False):
+        xp = self.xp
+        
         x = self
         if x.data.ndim != 4:
             raise ValueError("global_avg_pool2d expects (N,C,H,W)")
@@ -817,7 +871,7 @@ class Tensor:
                 if not keepdims:
                     # (N,C) -> (N,C,1,1)
                     g = g.reshape(N, C, 1, 1)
-                x.grad += np.ones_like(x.data) * (g / (H * W))
+                x.grad += xp.ones_like(x.data) * (g / (H * W))
 
         out._backward = _backward
         return out
@@ -830,6 +884,25 @@ class Tensor:
 
         new_shape = shape[:start_dim] + (int(np.prod(shape[start_dim:])),)
         return x.reshape(new_shape)
+    
+    def to(self, device: str):
+        xp = get_xp(device)
+        if self.xp is xp:
+            return self
+
+        # Move data
+        if xp.__name__ == "cupy":
+            # numpy -> cupy
+            self.data = xp.asarray(self.data)
+            if self.grad is not None:
+                self.grad = xp.asarray(self.grad)
+        else:
+            # cupy -> numpy
+            self.data = to_numpy(self.data)
+            if self.grad is not None:
+                self.grad = to_numpy(self.grad)
+        return self
+
 
 
 
