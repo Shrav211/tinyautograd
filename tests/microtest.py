@@ -1,7 +1,6 @@
-import numpy as np
+import cupy as cp
 from tinygrad.tensor import Tensor
 
-x = Tensor(np.ones((4, 5)), requires_grad=True)
-loss = x.sum() * 0.25
-loss.backward()
-print("unique grad:", np.unique(x.grad))
+x = Tensor(cp.ones((2,2)), requires_grad=True)
+y = x + 2
+assert isinstance(y.data, cp.ndarray)

@@ -19,14 +19,6 @@ def _unbroadcast(grad, shape):
 
     return grad
 
-def _assert_same_backend(a, b):
-    # a,b are Tensors
-    if type(a.data) is not type(b.data):
-        raise ValueError(
-            "Tensors are on different backends/devices. "
-            "Move them to the same device with .to('cpu') / .to('cuda')."
-        )
-
 @contextmanager
 def no_grad():
     prev = Tensor._grad_enabled
@@ -42,6 +34,7 @@ def _pair(x):
 
 def im2col(x, kH, kW, stride=1, padding=0):
     # x: (N, C, H, W)
+    xp = cp if (cp is not None and isinstance(x, cp.ndarray)) else np
     sH, sW = _pair(stride)
     pH, pW = _pair(padding)
 
@@ -53,7 +46,7 @@ def im2col(x, kH, kW, stride=1, padding=0):
     out_w = (W_p - kW) // sW + 1
 
     # building columns: (N, out_h, out_w, C, kH, kW)
-    cols = np.empty((N, out_h, out_w, C, kH, kW), dtype=x.dtype)
+    cols = xp.empty((N, out_h, out_w, C, kH, kW), dtype=x.dtype)
     for i in range(kH):
         i_end = i + sH * out_h
         for j in range(kW):
@@ -65,6 +58,8 @@ def im2col(x, kH, kW, stride=1, padding=0):
     return x_col, out_h, out_w, x_pad.shape
 
 def col2im(dX_col, x_pad_shape, kH, kW, stride=1, padding=0):
+    xp = cp if (cp is not None and isinstance(dX_col, cp.ndarray)) else np
+
     sH, sW = _pair(stride)
     pH, pW = _pair(padding)
 
@@ -73,7 +68,7 @@ def col2im(dX_col, x_pad_shape, kH, kW, stride=1, padding=0):
     out_w = (W_p - kW) // sW + 1
 
     cols = dX_col.reshape(N, out_h, out_w, C, kH, kW)
-    dx_pad = np.zeros((N, C, H_p, W_p), dtype=dX_col.dtype)
+    dx_pad = xp.zeros((N, C, H_p, W_p), dtype=dX_col.dtype)
 
     for i in range(kH):
         i_end = i + sH*out_h
@@ -120,8 +115,49 @@ class Tensor:
 
     @property
     def xp(self):
-        return get_xp_from_array(self.data)
+        # returns numpy or cupy depending on where self.data lives
+        if cp is not None and isinstance(self.data, cp.ndarray):
+            return cp
+        return np
 
+    def _assert_same_backend(a, b):
+        # a,b are Tensors
+        if type(a.data) is not type(b.data):
+            raise ValueError(
+                "Tensors are on different backends/devices. "
+                "Move them to the same device with .to('cpu') / .to('cuda')."
+            )
+
+    def _ensure_tensor(self, other, requires_grad=False):
+        """
+        Convert Python scalar/list/np/cp arrays into a Tensor
+        that lives on the SAME backend as self.
+        """
+        if isinstance(other, Tensor):
+            return other
+
+        xp = self.xp
+
+        # If user passes raw numpy/cupy arrays, convert them to self backend.
+        if isinstance(other, np.ndarray):
+            if xp is np:
+                arr = other
+            else:
+                # numpy -> cupy
+                arr = cp.asarray(other)
+            return Tensor(arr, requires_grad=requires_grad)
+
+        if cp is not None and isinstance(other, cp.ndarray):
+            if xp is cp:
+                arr = other
+            else:
+                # cupy -> numpy (explicit copy)
+                arr = cp.asnumpy(other)
+            return Tensor(arr, requires_grad=requires_grad)
+
+        # Python scalar or list/tuple
+        return Tensor(xp.array(other), requires_grad=requires_grad)
+    
     @property
     def _track_grad(self):
         return self.requires_grad and Tensor._grad_enabled
@@ -184,9 +220,8 @@ class Tensor:
 
     def __add__(self, other):
 
-        other = other if isinstance(other, Tensor) else Tensor(self.xp.array(other), requires_grad=False)
-
-        _assert_same_backend(self, other)
+        other = self._ensure_tensor(other, requires_grad=False)
+        self._assert_same_backend(other)
 
         xp = self.xp
 
@@ -222,10 +257,8 @@ class Tensor:
 
     def __mul__(self, other):
 
-        if not isinstance(other, Tensor):
-            other = Tensor(self.xp.array(other), requires_grad=False)
-
-        _assert_same_backend(self, other)
+        other = self._ensure_tensor(other, requires_grad=False)
+        self._assert_same_backend(other)
 
         req = Tensor._grad_enabled and (self.requires_grad or other.requires_grad)
         out = Tensor(self.data * other.data, requires_grad=req)
@@ -285,12 +318,13 @@ class Tensor:
         return out
 
     def __sub__(self, other):
-        _assert_same_backend(self, other)
-        other = other if isinstance(other, Tensor) else Tensor(other)
+        other = self._ensure_tensor(other, requires_grad=False)
+        self._assert_same_backend(other)
         return self + (-other)
 
     def __pow__(self, p):
-
+        p = self._ensure_tensor(p, requires_grad=False)
+        self._assert_same_backend(p)
         req = Tensor._grad_enabled and self.requires_grad
         out = Tensor(self.data ** p, requires_grad=req)
         
@@ -320,7 +354,7 @@ class Tensor:
         xp = self.xp
 
         req = Tensor._grad_enabled and (self.requires_grad)
-        out = Tensor(self.data.sum(axis=axis, keepdims=keepdims), requires_grad=req)
+        out = Tensor(xp.sum(self.data, axis=axis, keepdims=keepdims), requires_grad=req)
         if req:
             out._prev = {self}
             out._op = "sum"
@@ -371,15 +405,13 @@ class Tensor:
         return self.sum(axis=axis, keepdims=keepdims) * (1.0 / denom)
 
     def __truediv__(self, other):
-        _assert_same_backend(self, other)
-        if not isinstance(other, Tensor):
-            other = Tensor(other, requires_grad=False)
+        other = self._ensure_tensor(other, requires_grad=False)
+        self._assert_same_backend(other)
         return self * (other ** -1)
 
     def __rtruediv__(self, other):
-        _assert_same_backend(self, other)
-        if not isinstance(other, Tensor):
-            other = Tensor(other, requires_grad=False)
+        other = self._ensure_tensor(other, requires_grad=False)
+        self._assert_same_backend(other)
         return other * (self ** -1)
 
     def zero_grad(self):
@@ -389,8 +421,8 @@ class Tensor:
     __rmul__ = __mul__
 
     def __rsub__(self, other):
-        _assert_same_backend(self, other)
-        other = other if isinstance(other, Tensor) else Tensor(other)
+        other = self._ensure_tensor(other, requires_grad=False)
+        self._assert_same_backend(other)
 
         return other - self
     
@@ -424,8 +456,8 @@ class Tensor:
         return f"Tensor(data={self.data}, grad={self.grad}, requires_grad={self.requires_grad})"
 
     def __matmul__(self, other):
-        _assert_same_backend(self, other)
-        other = other if isinstance(other, Tensor) else Tensor(other)
+        other = self._ensure_tensor(other, requires_grad=False)
+        self._assert_same_backend(other)
         req = Tensor._grad_enabled and (self.requires_grad or other.requires_grad)
 
         out = Tensor(self.data @ other.data, requires_grad=req)
@@ -511,10 +543,10 @@ class Tensor:
         return out
     
     def exp(self):
-        
+        xp = self.xp
         req = Tensor._grad_enabled and self.requires_grad
 
-        out = Tensor(np.exp(self.data), requires_grad=self.requires_grad)
+        out = Tensor(xp.exp(self.data), requires_grad=self.requires_grad)
         
         if req:
             out._prev = {self}
@@ -560,9 +592,9 @@ class Tensor:
             out._op = "abs"
         return out
     
-    def max(self, axis=None, keepdims=False):
-        # used for numerical stability; treat as constant (no grad)
-        return Tensor(np.max(self.data, axis=axis, keepdims=keepdims), requires_grad=False)
+    # def max(self, axis=None, keepdims=False):
+    #     # used for numerical stability; treat as constant (no grad)
+    #     return Tensor(np.max(self.data, axis=axis, keepdims=keepdims), requires_grad=False)
     
     def max(self, axis=None, keepdims=False):
         xp = self.xp
@@ -635,13 +667,14 @@ class Tensor:
     
     def reshape(self, *shape):
         # allow reshape((a,b)) or reshape(a,b)
+        xp = self.xp
         if len(shape) == 1 and isinstance(shape[0], (tuple, list)):
             shape = tuple(shape[0])
         else:
             shape = tuple(shape)
 
         req = getattr(Tensor, "_grad_enabled", True) and self.requires_grad
-        out = Tensor(self.data.reshape(shape), requires_grad=req)
+        out = Tensor(xp.reshape(self.data, shape), requires_grad=req)
         out._op = "reshape"
 
         if not req:
@@ -666,6 +699,7 @@ class Tensor:
         - a tuple/list -> that permutation
         - separate ints -> permutation
         """
+        xp = self.xp
         if len(axes) == 0:
             perm = tuple(reversed(range(self.data.ndim)))
         elif len(axes) == 1 and isinstance(axes[0], (tuple, list)):
@@ -674,7 +708,7 @@ class Tensor:
             perm = tuple(axes)
 
         req = getattr(Tensor, "_grad_enabled", True) and self.requires_grad
-        out = Tensor(self.data.transpose(perm), requires_grad=req)
+        out = Tensor(xp.transpose(self.data, perm), requires_grad=req)
         out._op = "transpose"
 
         if not req:
@@ -703,6 +737,7 @@ class Tensor:
         self: x (N, C, H, W)
         returns: (N, C, out_h, out_w)
         """
+        xp = cp if (cp is not None and isinstance(self.data, cp.ndarray)) else np
         x = self
         X = x.data
         if X.ndim != 4:
@@ -755,10 +790,10 @@ class Tensor:
             dY_col = dY.transpose(0, 2, 3, 1).reshape(N*out_h*out_w, C)  # (N*out_h*out_w, C)
 
             # scatter into (N*out_h*out_w, C, kH*kW)
-            dX_col_3d = np.zeros((N*out_h*out_w, C, kH*kW), dtype=X.dtype)
+            dX_col_3d = xp.zeros((N*out_h*out_w, C, kH*kW), dtype=X.dtype)
 
-            rows = np.arange(N*out_h*out_w)[:, None]       # (R,1)
-            chs  = np.arange(C)[None, :]                   # (1,C)
+            rows = xp.arange(N*out_h*out_w)[:, None]       # (R,1)
+            chs  = xp.arange(C)[None, :]                   # (1,C)
             dX_col_3d[rows, chs, argmax] = dY_col
 
             dX_col = dX_col_3d.reshape(N*out_h*out_w, C*kH*kW)
@@ -780,9 +815,9 @@ class Tensor:
         w = weight if isinstance(weight, Tensor) else Tensor(weight, requires_grad=False)
         b = None if bias is None else (bias if isinstance(bias, Tensor) else Tensor(bias, requires_grad=False))
 
-        _assert_same_backend(x, w)
+        Tensor._assert_same_backend(x, w)
         if b is not None:
-            _assert_same_backend(x, b)
+            Tensor._assert_same_backend(x, b)
 
         # respect no_grad
         req = getattr(Tensor, "_grad_enabled", True) and (x.requires_grad or w.requires_grad or (b is not None and b.requires_grad))
