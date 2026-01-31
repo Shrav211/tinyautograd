@@ -228,6 +228,28 @@ class Module:
             except Exception:
                 pass
         return self
+    
+    def to(self, device: str):
+        # move parameters
+        for name, p in self.named_parameters():
+            p.to_(device)
+
+        # move buffers
+        for name, buf in self.named_buffers():
+            self._set_by_name(name, Tensor._to_array(buf, device))
+
+        return self
+    
+    def _set_by_name(self, name, value):
+        # name like "bn1.running_mean" or "layers.0.running_var"
+        parts = name.split(".")
+        obj = self
+        for p in parts[:-1]:
+            if p.isdigit():
+                obj = obj[int(p)]
+            else:
+                obj = getattr(obj, p)
+        setattr(obj, parts[-1], value)
 
 class Linear(Module):
     #Scalar Linear Layer
@@ -381,29 +403,46 @@ class BatchNorm2d(Module):
         
         return xhat * self.gamma + self.beta
 
-def cross_entropy_logits(logits: Tensor, y: np.ndarray):
+# def cross_entropy_logits(logits: Tensor, y: np.ndarray):
+#     N, C = logits.data.shape
+#     assert y.shape == (N,)
+
+#     xp = logits.xp  # numpy or cupy depending on logits
+
+#     # y is numpy ints; if we're on cupy, move indices to cupy
+#     if xp.__name__ == "cupy":
+#         import cupy as cp
+#         y_idx = cp.asarray(y, dtype=cp.int32)
+#         ar = cp.arange(N, dtype=cp.int32)
+#     else:
+#         y_idx = y
+#         ar = np.arange(N)
+
+#     Y = xp.zeros((N, C), dtype=logits.data.dtype)
+#     Y[ar, y_idx] = 1.0
+#     Y = Tensor(Y, requires_grad=False)
+
+#     lse = logits.logsumexp(axis=1, keepdims=True)
+#     z_y = (logits * Y).sum(axis=1, keepdims=True)
+#     return (lse - z_y).mean()
+
+def cross_entropy_logits(logits: Tensor, y):
     """
-    logits: Tensor (N, C)
-    y: numpy int array (N,) with values in [0, C-1]
+    logits: Tensor (N, C) on CPU or GPU
+    y: numpy int array (N,) OR cupy int array (N,) or python list
     returns scalar Tensor
     """
     N, C = logits.data.shape
-    assert y.shape == (N,)
 
-    # one-hot targets as constant tensor
-    Y = np.zeros((N, C), dtype=float)
-    Y[np.arange(N), y] = 1.0
-    Y = Tensor(Y, requires_grad=False)
-
-    # logsumexp per sample: (N,1)
+    # logsumexp: (N,1)
     lse = logits.logsumexp(axis=1, keepdims=True)
 
-    # z_y per sample: (N,1)
-    z_y = (logits * Y).sum(axis=1, keepdims=True)
+    # z_y: (N,1)
+    z_y = logits.gather(y, axis=1)
 
-    # loss per sample then mean
-    loss = (lse - z_y).mean()  # Changed this line!
-    return loss
+    # mean over batch
+    return (lse - z_y).mean()
+
 
 class Conv2d(Module):
     """

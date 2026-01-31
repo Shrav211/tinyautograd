@@ -113,6 +113,22 @@ class Tensor:
         self._name = None
         self._hooks = []
 
+    @staticmethod
+    def _to_array(arr, device):
+        xp = get_xp(device)   # returns np or cp
+        # arr might be numpy or cupy already
+        if cp is not None and isinstance(arr, cp.ndarray) and xp is np:
+            return cp.asnumpy(arr)
+        if isinstance(arr, np.ndarray) and xp is cp:
+            return cp.asarray(arr)
+        return arr  # already correct backend
+
+    def to_(self, device: str):
+        self.data = Tensor._to_array(self.data, device)
+        if self.grad is not None:
+            self.grad = Tensor._to_array(self.grad, device)
+        return self
+    
     @property
     def xp(self):
         # returns numpy or cupy depending on where self.data lives
@@ -322,12 +338,48 @@ class Tensor:
         self._assert_same_backend(other)
         return self + (-other)
 
-    def __pow__(self, p):
-        p = self._ensure_tensor(p, requires_grad=False)
-        self._assert_same_backend(p)
-        req = Tensor._grad_enabled and self.requires_grad
-        out = Tensor(self.data ** p, requires_grad=req)
+    # def __pow__(self, p):
+    #     p = self._ensure_tensor(p, requires_grad=False)
+    #     self._assert_same_backend(p)
+    #     req = Tensor._grad_enabled and self.requires_grad
+    #     out = Tensor(self.data ** p, requires_grad=req)
         
+    #     if req:
+    #         out._prev = {self}
+    #         out._op = "pow"
+
+    #         def _backward():
+    #             if out.grad is None:
+    #                 return
+                
+    #             if self.requires_grad:
+    #                 self.__init_grad()
+    #                 grad_self = out.grad * (p * (self.data ** (p - 1)))
+    #                 # self.grad += _unbroadcast(grad_self, self.data.shape)
+    #                 grad_contrib = _unbroadcast(grad_self, self.data.shape)
+    #                 grad_contrib = self._apply_hooks(grad_contrib)
+    #                 self.grad += grad_contrib
+
+    #         out._backward = _backward
+    #     else:
+    #         out._op = "pow"
+    #     return out
+    
+    def __pow__(self, p):
+        # allow p to be numeric or a scalar Tensor constant
+        if isinstance(p, Tensor):
+            if p.requires_grad:
+                raise NotImplementedError("Tensor exponent with grad not supported")
+            if p.data.shape != () and p.data.size != 1:
+                raise ValueError("Exponent Tensor must be scalar")
+            # extract python scalar (works for numpy or cupy scalar)
+            p_val = float(p.data)
+        else:
+            p_val = p
+
+        req = Tensor._grad_enabled and self.requires_grad
+        out = Tensor(self.data ** p_val, requires_grad=req)
+
         if req:
             out._prev = {self}
             out._op = "pow"
@@ -335,11 +387,10 @@ class Tensor:
             def _backward():
                 if out.grad is None:
                     return
-                
                 if self.requires_grad:
                     self.__init_grad()
-                    grad_self = out.grad * (p * (self.data ** (p - 1)))
-                    # self.grad += _unbroadcast(grad_self, self.data.shape)
+                    grad_self = out.grad * (p_val * (self.data ** (p_val - 1)))
+                    # hooks + unbroadcast if you use them
                     grad_contrib = _unbroadcast(grad_self, self.data.shape)
                     grad_contrib = self._apply_hooks(grad_contrib)
                     self.grad += grad_contrib
@@ -347,8 +398,9 @@ class Tensor:
             out._backward = _backward
         else:
             out._op = "pow"
+
         return out
-    
+
     def sum(self, axis=None, keepdims=False):
         
         xp = self.xp
@@ -665,6 +717,69 @@ class Tensor:
             pass
         return out
     
+    def gather(self, index, axis=1):
+        """
+        Gather values along `axis` using integer indices.
+
+        For CE use-case:
+        self: (N, C)
+        index: (N,) or (N,1) with values in [0, C-1]
+        axis: 1
+        Returns:
+        out: (N,1)
+        """
+        xp = self.xp  # your backend (np or cp)
+
+        idx = index
+        if isinstance(idx, Tensor):
+            idx = idx.data
+
+        # index is expected on CPU often (np), but xp.take_along_axis wants xp array
+        if xp.__name__ != "numpy":
+            # cupy path: ensure indices are cupy
+            import numpy as _np
+            if isinstance(idx, _np.ndarray):
+                idx_xp = xp.array(idx)
+            else:
+                idx_xp = idx
+        else:
+            # numpy path
+            idx_xp = idx
+
+        if idx_xp.ndim == 1:
+            idx_xp = idx_xp.reshape(-1, 1)  # (N,1)
+
+        # forward
+        out_data = xp.take_along_axis(self.data, idx_xp, axis=axis)
+        req = Tensor._grad_enabled and self.requires_grad
+        out = Tensor(out_data, requires_grad=req)
+        out._op = "gather"
+        out._prev = {self} if req else set()
+
+        if not req:
+            return out
+
+        def _backward():
+            if out.grad is None:
+                return
+            if not self.requires_grad:
+                return
+
+            self.__init_grad()
+            xp = self.xp
+
+            g = xp.zeros_like(self.data)
+
+            rows = xp.arange(self.data.shape[0]).reshape(-1, 1)
+
+            xp.add.at(g, (rows, idx_xp), out.grad)
+
+            self.grad += g
+
+        out._backward = _backward
+        return out
+
+
     def reshape(self, *shape):
         # allow reshape((a,b)) or reshape(a,b)
         xp = self.xp

@@ -36,6 +36,7 @@ class TinyCNN(Module):
 
 def test_tiny_cnn_train_steps_gpu():
     model = TinyCNN()
+    model.to("cuda")
     opt = AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
 
     # random MNIST-like batch on GPU
