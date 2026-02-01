@@ -130,6 +130,8 @@ class MNIST(Dataset):
 
         if self.flatten:
             x = x.reshape(-1)  # (784,)
-
+        else:
+            x = x.reshape(1, 28, 28)
+            
         y = int(y)  # integer label
         return x, y

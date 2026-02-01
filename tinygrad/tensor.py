@@ -86,7 +86,7 @@ class Tensor:
     #basically a tensor should represent a value or node in a graph
     _grad_enabled = True
 
-    def __init__(self, data, requires_grad=False):
+    def __init__(self, data, requires_grad=False, device=None):
         # Handle different input types
         if isinstance(data, np.ndarray):
             # Already a numpy array
@@ -778,7 +778,6 @@ class Tensor:
 
         out._backward = _backward
         return out
-
 
     def reshape(self, *shape):
         # allow reshape((a,b)) or reshape(a,b)

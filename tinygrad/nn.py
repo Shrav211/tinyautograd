@@ -432,16 +432,20 @@ def cross_entropy_logits(logits: Tensor, y):
     y: numpy int array (N,) OR cupy int array (N,) or python list
     returns scalar Tensor
     """
+    xp = logits.xp
     N, C = logits.data.shape
 
+    if not isinstance(y, (np.ndarray,)) and xp is np:
+        y = np.array(y, dtype=np.int64)
+    y_xp = xp.array(y, dtype=xp.int64).reshape(N, 1)
     # logsumexp: (N,1)
     lse = logits.logsumexp(axis=1, keepdims=True)
 
-    # z_y: (N,1)
-    z_y = logits.gather(y, axis=1)
+    # zy: (N,1)
+    zy = logits.gather(y_xp, axis=1)
 
     # mean over batch
-    return (lse - z_y).mean()
+    return (lse - zy).mean()
 
 
 class Conv2d(Module):
