@@ -38,28 +38,36 @@ def im2col(x, kH, kW, stride=1, padding=0):
     sH, sW = _pair(stride)
     pH, pW = _pair(padding)
 
-    N, C, H, W = x.shape
-    H_p, W_p = H + 2 * pH, W + 2 * pW
-    x_pad = np.pad(x, ((0, 0), (0, 0), (pH, pH), (pW, pW)), mode="constant")
+    # ✅ backend-safe padding
+    if pH != 0 or pW != 0:
+        x_pad = xp.pad(x, ((0, 0), (0, 0), (pH, pH), (pW, pW)), mode="constant")
+    else:
+        x_pad = x
 
+    N, C, H_p, W_p = x_pad.shape
     out_h = (H_p - kH) // sH + 1
     out_w = (W_p - kW) // sW + 1
 
-    # building columns: (N, out_h, out_w, C, kH, kW)
-    cols = xp.empty((N, out_h, out_w, C, kH, kW), dtype=x.dtype)
-    for i in range(kH):
-        i_end = i + sH * out_h
-        for j in range(kW):
-            j_end = j + sW * out_w
-            cols[..., i, j] = x_pad[:, :, i:i_end:sH, j:j_end:sW].transpose(0, 2, 3, 1)
+    # Build sliding window view using as_strided:
+    # view shape: (N, C, out_h, out_w, kH, kW)
+    sN, sC, sH0, sW0 = x_pad.strides
+    windows = xp.lib.stride_tricks.as_strided(
+        x_pad,
+        shape=(N, C, out_h, out_w, kH, kW),
+        strides=(sN, sC, sH0 * sH, sW0 * sW, sH0, sW0),
+    )
 
-    # Flatten to (N * out_h * out_w, C * kH * kW)
-    x_col = cols.reshape(N * out_h * out_w, C * kH * kW)
-    return x_col, out_h, out_w, x_pad.shape
+    # Reorder to (N, out_h, out_w, C, kH, kW) then flatten
+    cols = windows.transpose(0, 2, 3, 1, 4, 5).reshape(N * out_h * out_w, C * kH * kW)
+
+    # (optional) speed-up matmul on GPU/CPU by ensuring contiguous
+    cols = xp.ascontiguousarray(cols)
+
+    return cols, out_h, out_w, x_pad.shape
+
 
 def col2im(dX_col, x_pad_shape, kH, kW, stride=1, padding=0):
     xp = cp if (cp is not None and isinstance(dX_col, cp.ndarray)) else np
-
     sH, sW = _pair(stride)
     pH, pW = _pair(padding)
 
@@ -67,19 +75,24 @@ def col2im(dX_col, x_pad_shape, kH, kW, stride=1, padding=0):
     out_h = (H_p - kH) // sH + 1
     out_w = (W_p - kW) // sW + 1
 
-    cols = dX_col.reshape(N, out_h, out_w, C, kH, kW)
+    # reshape back into window gradient layout
+    cols = dX_col.reshape(N, out_h, out_w, C, kH, kW).transpose(0, 3, 1, 2, 4, 5)
+    # cols shape: (N, C, out_h, out_w, kH, kW)
+
     dx_pad = xp.zeros((N, C, H_p, W_p), dtype=dX_col.dtype)
 
+    # ✅ only kH*kW loops; no transpose inside loop
     for i in range(kH):
-        i_end = i + sH*out_h
+        i_end = i + sH * out_h
         for j in range(kW):
-            j_end = j + sW*out_w
-            dx_pad[:, :, i:i_end:sH, j:j_end:sW] += cols[..., i, j].transpose(0, 3, 1, 2)
+            j_end = j + sW * out_w
+            dx_pad[:, :, i:i_end:sH, j:j_end:sW] += cols[:, :, :, :, i, j]
 
     # remove padding
     if pH == 0 and pW == 0:
         return dx_pad
     return dx_pad[:, :, pH:-pH, pW:-pW]
+
 
 #tensor should contain value, gradient, who created it and the how to push the gradients backwards
 class Tensor:

@@ -5,10 +5,10 @@
     "mode": "fp32",
     "steps": 200,
     "batch_size": 128,
-    "steps_per_sec": 107.41105829712863,
-    "samples_per_sec": 13748.615462032465,
-    "loss_start": 0.45024398874182625,
-    "loss_end": 0.3091197044126449
+    "steps_per_sec": 120.44710355059415,
+    "samples_per_sec": 15417.229254476051,
+    "loss_start": 0.5020360108075255,
+    "loss_end": 0.3297626838087824
   },
   {
     "model": "MLP",
@@ -16,10 +16,10 @@
     "mode": "fp32",
     "steps": 200,
     "batch_size": 128,
-    "steps_per_sec": 124.79894531105549,
-    "samples_per_sec": 15974.264999815103,
-    "loss_start": 0.4502703933833025,
-    "loss_end": 0.30547436410901435
+    "steps_per_sec": 133.6164926908655,
+    "samples_per_sec": 17102.911064430784,
+    "loss_start": 0.4565557974414336,
+    "loss_end": 0.33208438232272347
   },
   {
     "model": "MLP",
@@ -27,10 +27,10 @@
     "mode": "amp",
     "steps": 200,
     "batch_size": 128,
-    "steps_per_sec": 102.25971331186464,
-    "samples_per_sec": 13089.243303918674,
-    "loss_start": 0.4422115883771165,
-    "loss_end": 0.2955440561376371
+    "steps_per_sec": 112.6042104112346,
+    "samples_per_sec": 14413.33893263803,
+    "loss_start": 0.48217388967339814,
+    "loss_end": 0.32995346425218663
   },
   {
     "model": "CNN",
@@ -38,10 +38,10 @@
     "mode": "fp32",
     "steps": 200,
     "batch_size": 128,
-    "steps_per_sec": 2.0682222468760787,
-    "samples_per_sec": 264.7324476001381,
-    "loss_start": 2.2180632956758215,
-    "loss_end": 1.668820663136073
+    "steps_per_sec": 3.317913180914706,
+    "samples_per_sec": 424.6928871570824,
+    "loss_start": 2.211259477295055,
+    "loss_end": 1.7321135649516144
   },
   {
     "model": "CNN",
@@ -49,10 +49,10 @@
     "mode": "fp32",
     "steps": 200,
     "batch_size": 128,
-    "steps_per_sec": 10.148374555269442,
-    "samples_per_sec": 1298.9919430744885,
-    "loss_start": 2.2095843763555867,
-    "loss_end": 1.667382918831871
+    "steps_per_sec": 11.516067988169494,
+    "samples_per_sec": 1474.0567024856953,
+    "loss_start": 2.252441333827342,
+    "loss_end": 1.7435486450529383
   },
   {
     "model": "CNN",
@@ -60,9 +60,9 @@
     "mode": "amp",
     "steps": 200,
     "batch_size": 128,
-    "steps_per_sec": 10.058157187194706,
-    "samples_per_sec": 1287.4441199609223,
-    "loss_start": 2.216891233474451,
-    "loss_end": 1.7171258855856928
+    "steps_per_sec": 10.690451154709601,
+    "samples_per_sec": 1368.377747802829,
+    "loss_start": 2.1809951955126254,
+    "loss_end": 1.6893392367253326
   }
 ]
