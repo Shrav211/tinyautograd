@@ -1,5 +1,6 @@
 from .tensor import Tensor
 import numpy as np
+# from .nn import Module, Conv2d, BatchNorm2d, Linear, GlobalAvgPool2d  # adapt imports to your file
 
 class Module:
     def __init__(self):
@@ -605,4 +606,68 @@ class MNIST_CNN(Module):
         x = x.reshape((x.data.shape[0], -1))              # flatten
         x = self.fc1(x).relu()
         x = self.fc2(x)
+        return x
+
+class BasicBlock(Module):
+    def __init__(self, in_ch, out_ch, stride=1):
+        super().__init__()
+        self.conv1 = Conv2d(in_ch, out_ch, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn1   = BatchNorm2d(out_ch)
+        self.conv2 = Conv2d(out_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn2   = BatchNorm2d(out_ch)
+
+        self.downsample = None
+        if stride != 1 or in_ch != out_ch:
+            # CIFAR ResNet uses 1x1 downsample when shape/channels change
+            self.downsample = Module()
+            self.downsample.conv = Conv2d(in_ch, out_ch, kernel_size=1, stride=stride, padding=0, bias=False)
+            self.downsample.bn   = BatchNorm2d(out_ch)
+
+    def __call__(self, x: Tensor) -> Tensor:
+        identity = x
+
+        out = self.conv1(x)
+        out = self.bn1(out).relu()
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        if self.downsample is not None:
+            identity = self.downsample.bn(self.downsample.conv(identity))
+
+        out = (out + identity).relu()
+        return out
+
+class ResNetCIFAR(Module):
+    """
+    ResNet-20 for CIFAR:
+      stem: 3x3 conv -> 16
+      stages: [16, 32, 64] with n blocks each
+      ResNet-20 => n=3 blocks per stage
+    """
+    def __init__(self, num_classes=10, n=3):
+        super().__init__()
+        self.conv1 = Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1   = BatchNorm2d(16)
+
+        self.layer1 = self._make_layer(16, 16, n, stride=1)
+        self.layer2 = self._make_layer(16, 32, n, stride=2)
+        self.layer3 = self._make_layer(32, 64, n, stride=2)
+
+        self.gap = GlobalAvgPool2d()
+        self.fc  = Linear(64, num_classes, init="xavier")
+
+    def _make_layer(self, in_ch, out_ch, blocks, stride):
+        layers = []
+        layers.append(BasicBlock(in_ch, out_ch, stride=stride))
+        for _ in range(1, blocks):
+            layers.append(BasicBlock(out_ch, out_ch, stride=1))
+        return layers  # your Module.parameters/named_state already supports list
+
+    def __call__(self, x: Tensor) -> Tensor:
+        x = self.bn1(self.conv1(x)).relu()
+        for b in self.layer1: x = b(x)
+        for b in self.layer2: x = b(x)
+        for b in self.layer3: x = b(x)
+        x = self.gap(x)      # (N,64)
+        x = self.fc(x)       # (N,10)
         return x

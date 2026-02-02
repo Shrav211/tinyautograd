@@ -32,6 +32,12 @@ def mnist_cnn_collate(batch):
     
     return X, Y
 
+def cifar10_collate(batch):
+    # batch: list of (x: (3,32,32) float32, y: int)
+    xs = np.stack([b[0] for b in batch], axis=0).astype(np.float32)  # (B,3,32,32)
+    ys = np.array([b[1] for b in batch], dtype=np.int64)            # (B,)
+    return xs, ys
+
 class DataLoader:
     def __init__(self, dataset, batch_size=32, shuffle=True, drop_last=False, collate_fn=default_collate, seed=0):
         self.dataset = dataset

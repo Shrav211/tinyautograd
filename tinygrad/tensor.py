@@ -65,7 +65,6 @@ def im2col(x, kH, kW, stride=1, padding=0):
 
     return cols, out_h, out_w, x_pad.shape
 
-
 def col2im(dX_col, x_pad_shape, kH, kW, stride=1, padding=0):
     xp = cp if (cp is not None and isinstance(dX_col, cp.ndarray)) else np
     sH, sW = _pair(stride)
