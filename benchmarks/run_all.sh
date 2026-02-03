@@ -13,9 +13,9 @@ echo ""
 echo "1/3: Running PyTorch benchmark..."
 python -m benchmarks.pytorch_baseline --device cuda --steps 2000 --batch-size 64
 
-# Run TinyGrad benchmark  
+# Run TinyAutoGrad benchmark  
 echo ""
-echo "2/3: Running TinyGrad benchmark..."
+echo "2/3: Running TinyAutoGrad benchmark..."
 python -m benchmarks.tinyautograd_bench --device cuda --steps 2000 --batch-size 64
 
 # Compare results
