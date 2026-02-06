@@ -7,3 +7,5 @@ added BCE + sigmoid, BCE + sigmoid trains the network by maximizing the probabil
 Performing gradient checking and understanding the importance of it. Double cheking gradient descent mathematically. 
 
 adding gradient visualization
+
+adding layer changer and examples
