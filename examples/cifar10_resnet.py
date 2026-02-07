@@ -63,7 +63,7 @@ def main(device="cuda", mode="fp32"):
         collate_fn=cifar10_collate
     )
     
-    model = ResNetCIFAR(num_classes=10, n=3)
+    model = ResNetCIFAR(num_classes=10, n=3, use_cudnn=True)
     model.to(device)
     model.train()
     
