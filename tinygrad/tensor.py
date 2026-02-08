@@ -2,22 +2,41 @@ import numpy as np
 from contextlib import contextmanager
 from tinygrad.device import get_xp_from_array, get_xp, to_numpy, cp
 
-def _unbroadcast(grad, shape):
-    """
-    Reduce grad to match `shape` by summing over broadcasted dimensions.
-    grad: numpy array
-    shape: tuple (original tensor shape)
-    """
-    # 1) If grad has extra leading dims, sum them away
-    while len(grad.shape) > len(shape):
-        grad = grad.sum(axis=0)
+# def _unbroadcast(grad, shape):
+#     """
+#     Reduce grad to match `shape` by summing over broadcasted dimensions.
+#     grad: numpy array
+#     shape: tuple (original tensor shape)
+#     """
+#     # 1) If grad has extra leading dims, sum them away
+#     while len(grad.shape) > len(shape):
+#         grad = grad.sum(axis=0)
 
-    # 2) Sum over axes where original shape had size 1
-    for i, (gdim, sdim) in enumerate(zip(grad.shape, shape)):
-        if sdim == 1 and gdim != 1:
-            grad = grad.sum(axis=i, keepdims=True)
+#     # 2) Sum over axes where original shape had size 1
+#     for i, (gdim, sdim) in enumerate(zip(grad.shape, shape)):
+#         if sdim == 1 and gdim != 1:
+#             grad = grad.sum(axis=i, keepdims=True)
 
-    return grad
+#     return grad
+
+def _unbroadcast(out, shape):
+    # 1. Extract raw data if it's a Tensor
+    if hasattr(out, 'requires_grad'):
+        data = out.data
+    else:
+        data = out
+
+    # 2. Sum out leading dimensions
+    while len(data.shape) > len(shape):
+        data = data.sum(axis=0)
+
+    # 3. Sum out broadcasted dimensions
+    for i, dim in enumerate(shape):
+        if dim == 1:
+            data = data.sum(axis=i, keepdims=True)
+            
+    # 4. Wrap back in Tensor (Runtime lookup allows this)
+    return data
 
 @contextmanager
 def no_grad():
@@ -238,9 +257,17 @@ class Tensor:
         return fn
     
     def _apply_hooks(self, grad):
-        for h in self._hooks:
-            grad = h(grad)
-        return grad 
+        hooks = getattr(self, "_hooks", None)
+        if not hooks:
+            return grad
+        
+        g = grad
+        for h in hooks:
+            out = h(g)
+            if out is None:
+                continue
+            g = out
+        return g
 
     def __init_grad(self):
         if self.grad is None:
@@ -305,6 +332,7 @@ class Tensor:
                     # self.grad += _unbroadcast(grad_self, self.data.shape)
                     grad_contrib = _unbroadcast(grad_self, self.data.shape)
                     grad_contrib = self._apply_hooks(grad_contrib)
+                    assert grad_contrib is not None, f"grad_contrib None in op={out._op}, tensor={self._name}"
                     self.grad += grad_contrib
 
                 if other.requires_grad:
@@ -920,7 +948,8 @@ class Tensor:
 
             rows = xp.arange(N*out_h*out_w)[:, None]       # (R,1)
             chs  = xp.arange(C)[None, :]                   # (1,C)
-            dX_col_3d[rows, chs, argmax] = dY_col
+            # Extract .data if dY_col is a Tensor
+            dX_col_3d[rows, chs, argmax] = dY_col.data if isinstance(dY_col, Tensor) else dY_col
 
             dX_col = dX_col_3d.reshape(N*out_h*out_w, C*kH*kW)
 

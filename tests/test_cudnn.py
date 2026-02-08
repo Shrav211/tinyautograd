@@ -3,7 +3,7 @@ import time
 import numpy as np
 try:
     import cupy as cp
-    from cupy.cuda import cudnn as cudnn
+    import cupy.cuda as cudnn
     CUDNN_AVAILABLE = True
 except Exception:
     CUDNN_AVAILABLE = False
@@ -57,8 +57,9 @@ print()
 # Try CuPy optimized version if available
 try:
     from tinygrad.nn_cudnn import Conv2dCuDNN
-    
-    print("2. Optimized CuPy Conv2d (ElementwiseKernel)")
+    print("[nn_cudnn] cudnn module:", cudnn.__name__, getattr(cudnn, "__file__", None))
+
+    print("2. cuDNN")
     print("-"*60)
     conv_cupy = Conv2dCuDNN(64, 128, kernel_size=3, padding=1, bias=False)
     

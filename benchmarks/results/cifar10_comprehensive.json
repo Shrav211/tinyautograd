@@ -1,0 +1,56 @@
+{
+  "benchmarks": [
+    {
+      "name": "ResNet-20 (Regular Conv, GPU, FP32)",
+      "device": "cuda",
+      "mode": "fp32",
+      "use_optimized": true,
+      "steps": 2000,
+      "batch_size": 64,
+      "total_time_sec": 1726.1009809990064,
+      "steps_per_sec": 1.1586807620273007,
+      "samples_per_sec": 74.15556876974725,
+      "final_loss": 1.6894645885918493,
+      "final_accuracy": 0.3786,
+      "accuracy_history": [
+        0.1,
+        0.291,
+        0.3187,
+        0.3468,
+        0.3786
+      ],
+      "speedup_vs_baseline": 1.0655415913989663
+    },
+    {
+      "name": "ResNet-20 (Optimized Conv, GPU, FP32)",
+      "device": "cuda",
+      "mode": "fp32",
+      "use_optimized": false,
+      "steps": 2000,
+      "batch_size": 64,
+      "total_time_sec": 1839.232386208998,
+      "steps_per_sec": 1.0874101690446927,
+      "samples_per_sec": 69.59425081886033,
+      "final_loss": 0.7991231217204464,
+      "final_accuracy": 0.7177,
+      "accuracy_history": [
+        0.1,
+        0.5381,
+        0.6121,
+        0.6163,
+        0.7177
+      ],
+      "speedup_vs_baseline": null
+    }
+  ],
+  "pytorch_reference": {
+    "steps_per_sec": 17.49,
+    "total_time_sec": 114.32,
+    "final_accuracy": 0.7029
+  },
+  "system_info": {
+    "gpu": "NVIDIA GeForce GTX 1050 Ti with Max-Q Design",
+    "cuda_version": "11.8",
+    "framework": "TinyGrad (educational)"
+  }
+}

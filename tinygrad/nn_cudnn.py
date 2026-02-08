@@ -1,7 +1,7 @@
 import numpy as np
 try:
     import cupy as cp
-    from cupy import cudnn
+    from cupy.cuda import cudnn
     CUDNN_AVAILABLE = True
 except ImportError:
     CUDNN_AVAILABLE = False
@@ -71,63 +71,85 @@ class Conv2dCuDNN:
         N, C, H, W = input_shape
         kH, kW = self.kernel_size
         
+        def _get_attr(obj, names):
+            for n in names:
+                if hasattr(obj, n):
+                    return getattr(obj, n)
+            return None
+
+        TENSOR_NCHW = _get_attr(cudnn, ["CUDNN_TENSOR_NCHW"])
+        if TENSOR_NCHW is None:
+            # Some CuPy builds use enums
+            TENSOR_NCHW = _get_attr(cudnn, ["TensorFormat"])
+            if TENSOR_NCHW is not None:
+                TENSOR_NCHW = TENSOR_NCHW.NCHW
+            else:
+                raise RuntimeError("Could not find NCHW tensor format constant in cupy.cuda.cudnn")
+
         # Calculate output dimensions
         H_out = (H + 2 * self.padding[0] - kH) // self.stride[0] + 1
         W_out = (W + 2 * self.padding[1] - kW) // self.stride[1] + 1
         
         # Create filter descriptor
-        self.filter_desc = cudnn.create_filter_descriptor(
-            self.W.data,  # Filter tensor
-            cudnn.CUDNN_TENSOR_NCHW  # Data format
+        self.filter_desc = cudnn.createFilterDescriptor()
+        cudnn.setFilter4dDescriptor(
+            self.filter_desc,
+            cudnn.CUDNN_DATA_FLOAT,
+            TENSOR_NCHW,
+            self.out_channels, self.in_channels, kH, kW
         )
         
         # Create convolution descriptor
-        self.conv_desc = cudnn.create_convolution_descriptor(
-            self.padding,  # (pad_h, pad_w)
-            self.stride,   # (stride_h, stride_w)
-            (1, 1),        # dilation (we don't use dilation)
-            cudnn.CUDNN_CROSS_CORRELATION,  # Mode (standard convolution)
-            cudnn.CUDNN_DATA_FLOAT  # Data type
+        self.conv_desc = cudnn.createConvolutionDescriptor()
+        cudnn.setConvolution2dDescriptor(
+            self.conv_desc,
+            self.padding[0], self.padding[1],
+            self.stride[0], self.stride[1],
+            1, 1,  # dilation
+            cudnn.CUDNN_CROSS_CORRELATION,
+            cudnn.CUDNN_DATA_FLOAT
         )
         
-        # Create input descriptor
-        self.input_desc = cudnn.create_tensor_descriptor(
-            (N, C, H, W),
+        # Input descriptor
+        self.input_desc = cudnn.createTensorDescriptor()
+        cudnn.setTensor4dDescriptor(
+            self.input_desc,
+            TENSOR_NCHW,
             cudnn.CUDNN_DATA_FLOAT,
-            cudnn.CUDNN_TENSOR_NCHW
+            N, C, H, W
         )
-        
-        # Create output descriptor
-        self.output_desc = cudnn.create_tensor_descriptor(
-            (N, self.out_channels, H_out, W_out),
+
+        # Output descriptor
+        self.output_desc = cudnn.createTensorDescriptor()
+        cudnn.setTensor4dDescriptor(
+            self.output_desc,
+            TENSOR_NCHW,
             cudnn.CUDNN_DATA_FLOAT,
-            cudnn.CUDNN_TENSOR_NCHW
+            N, self.out_channels, H_out, W_out
         )
         
-        # Find best algorithm
-        self.algo = cudnn.get_convolution_forward_algorithm(
-            cudnn.get_handle(),
+        self.algo = cudnn.getConvolutionForwardAlgorithm(
+            handle,
             self.input_desc,
             self.filter_desc,
             self.conv_desc,
             self.output_desc,
-            cudnn.CUDNN_CONVOLUTION_FWD_PREFER_FASTEST  # Choose fastest algo
+            cudnn.CUDNN_CONVOLUTION_FWD_PREFER_FASTEST,
+            0
         )
-        
-        # Get workspace size needed
-        self.workspace_size = cudnn.get_convolution_forward_workspace_size(
-            cudnn.get_handle(),
+
+        self.workspace_size = cudnn.getConvolutionForwardWorkspaceSize(
+            handle,
             self.input_desc,
             self.filter_desc,
             self.conv_desc,
             self.output_desc,
             self.algo
         )
-        
-        # Allocate workspace
+
         if self.workspace_size > 0:
-            self.workspace = cp.empty(self.workspace_size, dtype=cp.uint8)
-    
+            self.workspace = cp.empty((self.workspace_size,), dtype=cp.uint8)
+
     def __call__(self, x):
         """
         Forward pass using cuDNN
@@ -151,22 +173,19 @@ class Conv2dCuDNN:
         output_data = cp.empty((N, self.out_channels, H_out, W_out), dtype=cp.float32)
         
         # Run cuDNN convolution
-        cudnn.convolution_forward(
-            cudnn.get_handle(),
-            1.0,  # alpha
-            self.input_desc,
-            x.data,
-            self.filter_desc,
-            self.W.data,
-            self.conv_desc,
-            self.algo,
-            self.workspace if self.workspace_size > 0 else None,
-            self.workspace_size,
-            0.0,  # beta
-            self.output_desc,
-            output_data
+        handle = cudnn.getHandle()
+
+        cudnn.convolutionForward(
+            handle,
+            1.0,
+            self.input_desc, x.data,
+            self.filter_desc, self.W.data,
+            self.conv_desc, self.algo,
+            self.workspace, self.workspace_size,
+            0.0,
+            self.output_desc, output_data
         )
-        
+                
         # Add bias if present
         if self.use_bias:
             # Reshape bias for broadcasting: (1, C, 1, 1)

@@ -2,11 +2,17 @@ from .tensor import Tensor
 import numpy as np
 # from .nn import Module, Conv2d, BatchNorm2d, Linear, GlobalAvgPool2d  # adapt imports to your file
 
+# try:
+#     from tinygrad.nn_cudnn import Conv2dCuDNN
+#     CUDNN_AVAILABLE = True
+# except ImportError:
+#     CUDNN_AVAILABLE = False
+
 try:
-    from tinygrad.nn_cudnn import Conv2dCuDNN
-    CUDNN_AVAILABLE = True
+    from tinygrad.nn_cupy_optimized import Conv2dCuPyOptimized
+    OPTIMIZED_CONV_AVAILABLE = True
 except ImportError:
-    CUDNN_AVAILABLE = False
+    OPTIMIZED_CONV_AVAILABLE = False
 
 class Module:
     def __init__(self):
@@ -622,51 +628,49 @@ class MNIST_CNN(Module):
         return x
 
 class BasicBlock(Module):
-    def __init__(self, in_ch, out_ch, stride=1):
+    def __init__(self, in_ch, out_ch, stride=1, Conv=Conv2d):
         super().__init__()
-        self.conv1 = Conv2d(in_ch, out_ch, kernel_size=3, stride=stride, padding=1, bias=False)
+        # Use the passed 'Conv' class (either standard or optimized)
+        self.conv1 = Conv(in_ch, out_ch, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1   = BatchNorm2d(out_ch)
-        self.conv2 = Conv2d(out_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2 = Conv(out_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2   = BatchNorm2d(out_ch)
 
         self.downsample = None
         if stride != 1 or in_ch != out_ch:
-            # CIFAR ResNet uses 1x1 downsample when shape/channels change
-            self.downsample = Module()
-            self.downsample.conv = Conv2d(in_ch, out_ch, kernel_size=1, stride=stride, padding=0, bias=False)
-            self.downsample.bn   = BatchNorm2d(out_ch)
+            self.downsample = Sequential(
+                Conv(in_ch, out_ch, kernel_size=1, stride=stride, padding=0, bias=False),
+                BatchNorm2d(out_ch)
+            )
 
     def __call__(self, x: Tensor) -> Tensor:
-        identity = x
-
-        out = self.conv1(x)
-        out = self.bn1(out).relu()
-        out = self.conv2(out)
-        out = self.bn2(out)
+        out = self.bn1(self.conv1(x)).relu()
+        out = self.bn2(self.conv2(out))
 
         if self.downsample is not None:
-            identity = self.downsample.bn(self.downsample.conv(identity))
+            out = out + self.downsample(x)
+        else:
+            out = out + x
+            
+        return out.relu()
 
-        out = (out + identity).relu()
-        return out
-
-class BasicBlock(Module):
-    def __init__(self, in_ch, out_ch, stride=1, use_cudnn=False):
-        super().__init__()
+# class BasicBlock(Module):
+#     def __init__(self, in_ch, out_ch, stride=1, use_cudnn=False):
+#         super().__init__()
         
-        # Choose Conv2d implementation
-        ConvLayer = Conv2dCuDNN if use_cudnn and CUDNN_AVAILABLE else Conv2d
+#         # Choose Conv2d implementation
+#         ConvLayer = Conv2dCuDNN if use_cudnn and CUDNN_AVAILABLE else Conv2d
         
-        self.conv1 = ConvLayer(in_ch, out_ch, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn1   = BatchNorm2d(out_ch)
-        self.conv2 = ConvLayer(out_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2   = BatchNorm2d(out_ch)
+#         self.conv1 = ConvLayer(in_ch, out_ch, kernel_size=3, stride=stride, padding=1, bias=False)
+#         self.bn1   = BatchNorm2d(out_ch)
+#         self.conv2 = ConvLayer(out_ch, out_ch, kernel_size=3, stride=1, padding=1, bias=False)
+#         self.bn2   = BatchNorm2d(out_ch)
         
-        self.downsample = None
-        if stride != 1 or in_ch != out_ch:
-            self.downsample = Module()
-            self.downsample.conv = ConvLayer(in_ch, out_ch, kernel_size=1, stride=stride, padding=0, bias=False)
-            self.downsample.bn   = BatchNorm2d(out_ch)
+#         self.downsample = None
+#         if stride != 1 or in_ch != out_ch:
+#             self.downsample = Module()
+#             self.downsample.conv = ConvLayer(in_ch, out_ch, kernel_size=1, stride=stride, padding=0, bias=False)
+#             self.downsample.bn   = BatchNorm2d(out_ch)
 
 # for normal resnet implementation
 # class ResNetCIFAR(Module):
@@ -703,27 +707,51 @@ class BasicBlock(Module):
 #         x = self.gap(x)      # (N,64)
 #         x = self.fc(x)       # (N,10)
 #         return x
-
+class Sequential(Module):
+    def __init__(self, *layers):
+        self.layers = layers
+    def __call__(self, x):
+        for l in self.layers: x = l(x)
+        return x
+    def to(self, device):
+        for l in self.layers:
+            if hasattr(l, 'to'):
+                l.to(device)
+        return self
 # this for cudnn implementation
 class ResNetCIFAR(Module):
-    def __init__(self, num_classes=10, n=3, use_cudnn=False):
+    def __init__(self, num_classes=10, n=3, use_optimized=False):
         super().__init__()
         
-        ConvLayer = Conv2dCuDNN if use_cudnn and CUDNN_AVAILABLE else Conv2d
+        # 1. Select the Convolution Class based on the flag
+        if use_optimized and OPTIMIZED_CONV_AVAILABLE:
+            ConvLayer = Conv2dCuPyOptimized
+        else:
+            ConvLayer = Conv2d
         
         self.conv1 = ConvLayer(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1   = BatchNorm2d(16)
         
-        self.layer1 = self._make_layer(16, 16, n, stride=1, use_cudnn=use_cudnn)
-        self.layer2 = self._make_layer(16, 32, n, stride=2, use_cudnn=use_cudnn)
-        self.layer3 = self._make_layer(32, 64, n, stride=2, use_cudnn=use_cudnn)
+        # 2. Pass 'ConvLayer' down to _make_layer
+        self.layer1 = self._make_layer(ConvLayer, 16, 16, n, stride=1)
+        self.layer2 = self._make_layer(ConvLayer, 16, 32, n, stride=2)
+        self.layer3 = self._make_layer(ConvLayer, 32, 64, n, stride=2)
         
         self.gap = GlobalAvgPool2d()
         self.fc  = Linear(64, num_classes, init="xavier")
-    
-    def _make_layer(self, in_ch, out_ch, blocks, stride, use_cudnn=False):
+
+    def _make_layer(self, Conv, in_ch, out_ch, blocks, stride):
         layers = []
-        layers.append(BasicBlock(in_ch, out_ch, stride=stride, use_cudnn=use_cudnn))
+        # 3. Pass 'Conv' to BasicBlock
+        layers.append(BasicBlock(in_ch, out_ch, stride=stride, Conv=Conv))
         for _ in range(1, blocks):
-            layers.append(BasicBlock(out_ch, out_ch, stride=1, use_cudnn=use_cudnn))
-        return layers
+            layers.append(BasicBlock(out_ch, out_ch, stride=1, Conv=Conv))
+        return Sequential(*layers)
+
+    def __call__(self, x: Tensor) -> Tensor:
+        out = self.bn1(self.conv1(x)).relu()
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.gap(out)
+        return self.fc(out)
