@@ -23,3 +23,14 @@
 ### CIFAR-10 ResNet-20 Training Performance
 
 Trained on **NVIDIA GTX 1050 Ti** (4GB VRAM) for 2000 steps (batch size 64).
+
+## 🎯 Learning Objectives
+
+This project demonstrates:
+
+1. **Automatic Differentiation** - How autograd engines work under the hood
+2. **GPU Programming** - CUDA acceleration with CuPy
+3. **Performance Optimization** - Memory management, vectorization, kernel fusion
+4. **Neural Network Architectures** - MLP, CNN, ResNet from scratch
+5. **Training Dynamics** - Optimizers, learning rate schedules, regularization
+6. **Software Engineering** - Clean API design, testing, documentation
