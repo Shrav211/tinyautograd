@@ -70,7 +70,7 @@ Time: **27ms** per iteration (**16.87× faster!**)
 <details>
 <summary>Click to expand</summary>
 
-**GPU memory is limited!** (your GTX 1050 Ti has only 4GB)
+**GPU memory is limited!** (my GTX 1050 Ti has only 4GB)
 
 **Strategies implemented:**
 1. **In-place operations** where possible
