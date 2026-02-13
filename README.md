@@ -89,3 +89,7 @@ This project demonstrates:
 4. **Neural Network Architectures** - MLP, CNN, ResNet from scratch
 5. **Training Dynamics** - Optimizers, learning rate schedules, regularization
 6. **Software Engineering** - Clean API design, testing, documentation
+
+⭐ **Star this repo if you found it helpful!**
+
+Built with ❤️ for learning deep learning from first principles
