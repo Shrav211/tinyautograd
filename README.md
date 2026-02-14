@@ -93,3 +93,10 @@ This project demonstrates:
 ⭐ **Star this repo if you found it helpful!**
 
 Built with ❤️ for learning deep learning from first principles
+
+## 🙏 Acknowledgments
+
+- Inspired by [PyTorch](https://pytorch.org/), [micrograd](https://github.com/karpathy/micrograd), and [tinygrad](https://github.com/tinygrad/tinygrad)
+- CIFAR-10 dataset from [Alex Krizhevsky](https://www.cs.toronto.edu/~kriz/cifar.html)
+- GPU optimizations based on [CuPy documentation](https://docs.cupy.dev/)
+- Educational resources from [fast.ai](https://www.fast.ai/) and [Dive into Deep Learning](https://d2l.ai/)
