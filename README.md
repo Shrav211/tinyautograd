@@ -100,3 +100,6 @@ Built with ❤️ for learning deep learning from first principles
 - CIFAR-10 dataset from [Alex Krizhevsky](https://www.cs.toronto.edu/~kriz/cifar.html)
 - GPU optimizations based on [CuPy documentation](https://docs.cupy.dev/)
 - Educational resources from [fast.ai](https://www.fast.ai/) and [Dive into Deep Learning](https://d2l.ai/)
+
+
+Starting Blog Posts
