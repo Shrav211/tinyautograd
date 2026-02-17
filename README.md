@@ -1,4 +1,4 @@
-# 🧠 TinyGrad
+# TinyGrad
 
 > A minimal deep learning framework built from scratch for educational purposes
 
@@ -7,18 +7,18 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## ✨ Key Features
+## Key Features
 
-- 🔥 **Automatic Differentiation** - Full reverse-mode autograd engine with dynamic computation graphs
-- 🚀 **GPU Acceleration** - CUDA support via CuPy with optimized convolution kernels
-- 📊 **Common Layers** - Linear, Conv2d, BatchNorm, Dropout, Pooling, and more
-- 🎯 **Modern Optimizers** - SGD, Adam, AdamW with learning rate scheduling
-- 🧮 **Mixed Precision Training** - FP16 automatic mixed precision for faster training
-- 📈 **Real Datasets** - MNIST and CIFAR-10 loaders with data augmentation
-- 🏗️ **Modern Architectures** - MLP, CNN, ResNet implementations
-- 🎨 **Interactive Visualizer** - Streamlit-based neural network visualization tool
+-  **Automatic Differentiation** - Full reverse-mode autograd engine with dynamic computation graphs
+-  **GPU Acceleration** - CUDA support via CuPy with optimized convolution kernels
+-  **Common Layers** - Linear, Conv2d, BatchNorm, Dropout, Pooling, and more
+-  **Modern Optimizers** - SGD, Adam, AdamW with learning rate scheduling
+-  **Mixed Precision Training** - FP16 automatic mixed precision for faster training
+-  **Real Datasets** - MNIST and CIFAR-10 loaders with data augmentation
+-  **Modern Architectures** - MLP, CNN, ResNet implementations
+-  **Interactive Visualizer** - Streamlit-based neural network visualization tool
 
-## 🚀 Performance Benchmarks
+## Performance Benchmarks
 
 ### CIFAR-10 ResNet-20 Training Performance
 
@@ -31,9 +31,9 @@ Trained on **NVIDIA GTX 1050 Ti** (4GB VRAM) for 2000 steps (batch size 64).
 
 **Problem:** Convolution is expensive (millions of operations)
 
-**Naive approach (your baseline):**
+**Naive approach (baseline):**
 ```python
-# Python loops - SLOW!
+# Python loops
 for i in range(kernel_height):
     for j in range(kernel_width):
         output += input_patch[i,j] * kernel[i,j]
@@ -58,10 +58,10 @@ output = patches @ kernel_flat
 Time: **27ms** per iteration (**16.87× faster!**)
 
 **Why so much faster?**
-- ✅ No Python loops (single NumPy/CuPy operation)
-- ✅ No data copying (380ms saved!)
-- ✅ Better GPU memory access patterns
-- ✅ Leverages optimized cuBLAS for matrix multiply
+- No Python loops (single NumPy/CuPy operation)
+- No data copying (380ms saved!)
+- Better GPU memory access patterns
+- Leverages optimized cuBLAS for matrix multiply
 
 </details>
 
@@ -79,7 +79,7 @@ Time: **27ms** per iteration (**16.87× faster!**)
 4. **Mixed precision (FP16)** - 50% less memory
 5. **Gradient accumulation** - Train with larger effective batch sizes
 
-## 🎯 Learning Objectives
+## Learning Objectives
 
 This project demonstrates:
 
@@ -90,11 +90,11 @@ This project demonstrates:
 5. **Training Dynamics** - Optimizers, learning rate schedules, regularization
 6. **Software Engineering** - Clean API design, testing, documentation
 
-⭐ **Star this repo if you found it helpful!**
+**Star this repo if you found it helpful!**
 
 Built with ❤️ for learning deep learning from first principles
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - Inspired by [PyTorch](https://pytorch.org/), [micrograd](https://github.com/karpathy/micrograd), and [tinygrad](https://github.com/tinygrad/tinygrad)
 - CIFAR-10 dataset from [Alex Krizhevsky](https://www.cs.toronto.edu/~kriz/cifar.html)
